@@ -1,36 +1,66 @@
+import logging
 import uvicorn
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from websocket.stream_handler import handle_voice_translation_stream
+from backend.config.settings import settings
+from backend.websocket.connection_manager import manager
+from backend.websocket.stream_handler import handle_translation_stream
+
+# Setup structured logger
+logging.basicConfig(level=settings.LOG_LEVEL)
+logger = logging.getLogger("backend")
 
 app = FastAPI(
-    title="Sinhala-to-Tamil Live AI Voice Translation backend",
-    description="Low-latency WebSocket streaming server powered by Gemini Multimodal Live API."
+    title="Sinhala ↔ Tamil Real-Time Voice Translator",
+    description="FastAPI WebSocket Gateway interfacing with Google Gemini Live API",
+    version="1.0.0",
 )
 
-
+# CORS configuration derived from project settings
+origins = settings.ALLOWED_ORIGINS.split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In development, allow all connections
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/health")
-def health_check():
-    """Simple HTTP route for M7 to verify the backend container status is green."""
-    return {"status": "healthy", "service": "sinhala-tamil-voice-backend", "day": 1}
+# ------------------------------------------------------------------------------
+# REST Routes
+# ------------------------------------------------------------------------------
+@app.get("/api/v1/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint for Docker container checks and ingress routers."""
+    return {
+        "status": "healthy",
+        "service": "voice-translator-backend",
+        "gemini_live_configured": bool(settings.GEMINI_API_KEY)
+    }
 
-@app.websocket("/translate-stream")
-async def websocket_endpoint(websocket: WebSocket):
+# ------------------------------------------------------------------------------
+# WebSocket Gateway Routes
+# ------------------------------------------------------------------------------
+@app.websocket("/ws/translate")
+async def websocket_translator_endpoint(websocket: WebSocket):
     """
-    The main architectural WebSocket highway.
-    Passes the socket context seamlessly to Member 4's handler module.
+    Main real-time voice streaming entrypoint.
+    Receives Client float32 PCM frames, downsizes/converts, forwards to Gemini API,
+    and returns synthesized audio translation and transcriptions back to Client.
     """
-    await handle_voice_translation_stream(websocket)
+    await manager.connect(websocket)
+    logger.info(f"Client connection established: {websocket.client}")
+    
+    try:
+        await handle_translation_stream(websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logger.info(f"Client connection disconnected: {websocket.client}")
+    except Exception as e:
+        logger.error(f"Error in translation WebSocket loop: {str(e)}")
+        manager.disconnect(websocket)
+        await websocket.close(code=1011, reason="Internal server error")
 
 if __name__ == "__main__":
-    # Runs the local loop server on Port 8000
-    # Bound to 0.0.0.0 so M7's Nginx/Docker configs can see it flawlessly
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # Bound to 0.0.0.0 so Member 7's Nginx/Docker configs can see it flawlessly
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
