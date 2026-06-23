@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 type LanguageMode = 'SI_TO_TA' | 'TA_TO_SI';
-type SessionState = 'IDLE' | 'LISTENING' | 'TRANSLATING' | 'SPEAKING' | 'ERROR';
+type SessionState = 'IDLE' | 'AI_LISTENING' | 'AI_THINKING' | 'AI_SPEAKING' | 'ERROR';
 
 export default function TranslatorPage() {
   // UI states
@@ -29,8 +29,8 @@ export default function TranslatorPage() {
 
   // Toggle speech simulation loop
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (sessionState === 'LISTENING') {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (sessionState === 'AI_LISTENING') {
       addLog('Microphone captured. Stream downsampling to 16kHz PCM...');
       addLog('WebSocket link established. Streaming frames to Gemini API...');
       
@@ -38,7 +38,7 @@ export default function TranslatorPage() {
       interval = setInterval(() => {
         count++;
         if (count === 3) {
-          setSessionState('TRANSLATING');
+          setSessionState('AI_THINKING');
           if (langMode === 'SI_TO_TA') {
             setSinhalaCaption('ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?');
             addLog('Sinhala speech detected: "ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?"');
@@ -48,7 +48,7 @@ export default function TranslatorPage() {
           }
         }
         if (count === 6) {
-          setSessionState('SPEAKING');
+          setSessionState('AI_SPEAKING');
           if (langMode === 'SI_TO_TA') {
             setTamilCaption('வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?');
             addLog('Gemini live generated Tamil synthesis audio stream...');
@@ -58,20 +58,23 @@ export default function TranslatorPage() {
           }
         }
         if (count === 9) {
-          setSessionState('LISTENING');
+          setSessionState('AI_LISTENING');
           count = 0;
         }
       }, 1500);
-    } else {
-      clearInterval(interval);
     }
-    return () => clearInterval(interval);
+
+    return () => {
+      if (interval !== null) {
+        clearInterval(interval);
+      }
+    };
   }, [sessionState]);
 
   const handleStartSession = () => {
     if (sessionState === 'IDLE') {
       setIsConnected(true);
-      setSessionState('LISTENING');
+      setSessionState('AI_LISTENING');
       addLog('Initiating session. Querying credentials...');
     } else {
       setSessionState('IDLE');
@@ -173,7 +176,11 @@ export default function TranslatorPage() {
                     ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30' 
                     : sessionState === 'ERROR'
                       ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
-                      : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30 pulse-active'
+                      : sessionState === 'AI_LISTENING'
+                        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30 ai-listening'
+                        : sessionState === 'AI_THINKING'
+                          ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30 ai-thinking'
+                          : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30 ai-speaking'
                 }`}
               >
                 {sessionState === 'IDLE' ? (
@@ -188,15 +195,15 @@ export default function TranslatorPage() {
                 <div className="flex items-center justify-center gap-2 mt-1">
                   <span className={`h-2.5 w-2.5 rounded-full ${
                     sessionState === 'IDLE' ? 'bg-slate-600' :
-                    sessionState === 'LISTENING' ? 'bg-emerald-400 animate-ping' :
-                    sessionState === 'TRANSLATING' ? 'bg-amber-400 animate-pulse' :
-                    sessionState === 'SPEAKING' ? 'bg-indigo-400 animate-pulse' : 'bg-rose-500'
+                    sessionState === 'AI_LISTENING' ? 'bg-emerald-400 animate-ping' :
+                    sessionState === 'AI_THINKING' ? 'bg-amber-400 animate-pulse' :
+                    sessionState === 'AI_SPEAKING' ? 'bg-indigo-400 animate-pulse' : 'bg-rose-500'
                   }`}></span>
                   <span className="text-sm font-semibold font-outfit text-white">
                     {sessionState === 'IDLE' && 'Awaiting Mic...'}
-                    {sessionState === 'LISTENING' && 'Listening (Capturing Audio)'}
-                    {sessionState === 'TRANSLATING' && 'AI Translating...'}
-                    {sessionState === 'SPEAKING' && 'Playing Synthetic Audio'}
+                    {sessionState === 'AI_LISTENING' && 'AI Listening (Capturing Audio)'}
+                    {sessionState === 'AI_THINKING' && 'AI Thinking (Processing)'}
+                    {sessionState === 'AI_SPEAKING' && 'AI Speaking (Synthesizing)'}
                     {sessionState === 'ERROR' && 'Stream error'}
                   </span>
                 </div>
@@ -265,16 +272,29 @@ export default function TranslatorPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
             {/* Input Caption Card */}
-            <div className="glass-panel rounded-2xl p-6 min-h-[220px] flex flex-col justify-between">
+            <div className={`glass-panel rounded-2xl p-6 min-h-[220px] flex flex-col justify-between text-panel-transition ${
+              (sessionState === 'AI_LISTENING' && langMode === 'SI_TO_TA') || 
+              (sessionState === 'AI_THINKING' && langMode === 'SI_TO_TA') ||
+              (sessionState === 'AI_SPEAKING' && langMode === 'TA_TO_SI')
+                ? 'text-panel-active' : ''
+            }`}>
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Sinhala Transcript</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Sinhala Transcript</span>
+                    {(sessionState === 'AI_LISTENING' && langMode === 'SI_TO_TA') && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    )}
+                    {(sessionState === 'AI_THINKING' && langMode === 'SI_TO_TA') && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    )}
+                  </div>
                   <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">16kHz Int16</span>
                 </div>
                 <p className="text-lg font-outfit text-white leading-relaxed">
                   {sinhalaCaption || (
                     <span className="text-slate-600 italic">
-                      {sessionState === 'LISTENING' && langMode === 'SI_TO_TA' ? 'Speak Sinhala now...' : 'Awaiting speech input...'}
+                      {sessionState === 'AI_LISTENING' && langMode === 'SI_TO_TA' ? 'Speak Sinhala now...' : 'Awaiting speech input...'}
                     </span>
                   )}
                 </p>
@@ -286,16 +306,32 @@ export default function TranslatorPage() {
             </div>
 
             {/* Output Translation Card */}
-            <div className="glass-panel rounded-2xl p-6 min-h-[220px] flex flex-col justify-between">
+            <div className={`glass-panel rounded-2xl p-6 min-h-[220px] flex flex-col justify-between text-panel-transition ${
+              (sessionState === 'AI_LISTENING' && langMode === 'TA_TO_SI') || 
+              (sessionState === 'AI_THINKING' && langMode === 'TA_TO_SI') ||
+              (sessionState === 'AI_SPEAKING' && langMode === 'SI_TO_TA')
+                ? 'text-panel-active' : ''
+            }`}>
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Tamil Translation</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Tamil Translation</span>
+                    {(sessionState === 'AI_LISTENING' && langMode === 'TA_TO_SI') && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    )}
+                    {(sessionState === 'AI_THINKING' && langMode === 'TA_TO_SI') && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    )}
+                    {(sessionState === 'AI_SPEAKING') && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+                    )}
+                  </div>
                   <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Gemini Live</span>
                 </div>
                 <p className="text-lg font-outfit text-white leading-relaxed">
                   {tamilCaption || (
                     <span className="text-slate-600 italic">
-                      {sessionState === 'LISTENING' && langMode === 'TA_TO_SI' ? 'Speak Tamil now...' : 'Awaiting translation...'}
+                      {sessionState === 'AI_LISTENING' && langMode === 'TA_TO_SI' ? 'Speak Tamil now...' : 'Awaiting translation...'}
                     </span>
                   )}
                 </p>
