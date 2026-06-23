@@ -1,0 +1,26 @@
+{
+  "name": "sinhala-tamil-voice-translator",
+  "version": "1.0.0",
+  "description": "Real-time AI Sinhala ↔ Tamil Voice Translator using Gemini Live API",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "preview:frontend": "npm --prefix frontend run preview",
+    "dev:backend": "python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && uvicorn backend.main:app --reload --port 8000",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down"
+  },
+  "keywords": [
+    "voice-translator",
+    "gemini-live-api",
+    "real-time-translation",
+    "sinhala",
+    "tamil",
+    "fastapi",
+    "react",
+    "websockets"
+  ],
+  "author": "Translator Project Team",
+  "license": "MIT"
+}
