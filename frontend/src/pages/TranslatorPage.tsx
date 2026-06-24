@@ -1,91 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { 
-  Mic, MicOff, Globe, Sparkles, RefreshCw, 
-  Settings, HelpCircle, Activity, Wifi, ShieldAlert 
+  Mic, MicOff, Sparkles, RefreshCw, 
+  Settings, Activity, Wifi, ShieldAlert 
 } from 'lucide-react';
+import { useAudioStream } from '../hooks/useAudioStream';
 
 type LanguageMode = 'SI_TO_TA' | 'TA_TO_SI';
-type SessionState = 'IDLE' | 'AI_LISTENING' | 'AI_THINKING' | 'AI_SPEAKING' | 'ERROR';
 
 export default function TranslatorPage() {
   // UI states
   const [langMode, setLangMode] = useState<LanguageMode>('SI_TO_TA');
-  const [sessionState, setSessionState] = useState<SessionState>('IDLE');
-  const [isConnected, setIsConnected] = useState<boolean>(false);
-  const [latency, setLatency] = useState<number>(45); // Mock latency
-  const [sinhalaCaption, setSinhalaCaption] = useState<string>('');
-  const [tamilCaption, setTamilCaption] = useState<string>('');
   const [showConfig, setShowConfig] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(80);
+  const [latency] = useState<number>(45); // Mock latency
 
-  // Connection Log Feed
-  const [logs, setLogs] = useState<string[]>([
-    'System initialized. Awaiting user interaction...',
-  ]);
-
-  const addLog = (msg: string) => {
-    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 15)]);
-  };
-
-  // Toggle speech simulation loop
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null;
-    if (sessionState === 'AI_LISTENING') {
-      addLog('Microphone captured. Stream downsampling to 16kHz PCM...');
-      addLog('WebSocket link established. Streaming frames to Gemini API...');
-      
-      let count = 0;
-      interval = setInterval(() => {
-        count++;
-        if (count === 3) {
-          setSessionState('AI_THINKING');
-          if (langMode === 'SI_TO_TA') {
-            setSinhalaCaption('ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?');
-            addLog('Sinhala speech detected: "ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?"');
-          } else {
-            setTamilCaption('வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?');
-            addLog('Tamil speech detected: "வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?"');
-          }
-        }
-        if (count === 6) {
-          setSessionState('AI_SPEAKING');
-          if (langMode === 'SI_TO_TA') {
-            setTamilCaption('வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?');
-            addLog('Gemini live generated Tamil synthesis audio stream...');
-          } else {
-            setSinhalaCaption('ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?');
-            addLog('Gemini live generated Sinhala synthesis audio stream...');
-          }
-        }
-        if (count === 9) {
-          setSessionState('AI_LISTENING');
-          count = 0;
-        }
-      }, 1500);
-    }
-
-    return () => {
-      if (interval !== null) {
-        clearInterval(interval);
-      }
-    };
-  }, [sessionState]);
+  const {
+    isConnected,
+    isRecording,
+    sessionState,
+    sinhalaCaption,
+    tamilCaption,
+    logs,
+    startStream,
+    stopStream,
+    setSinhalaCaption,
+    setTamilCaption,
+    addLog,
+  } = useAudioStream(langMode);
 
   const handleStartSession = () => {
-    if (sessionState === 'IDLE') {
-      setIsConnected(true);
-      setSessionState('AI_LISTENING');
-      addLog('Initiating session. Querying credentials...');
+    if (sessionState === 'IDLE' || sessionState === 'ERROR') {
+      startStream();
     } else {
-      setSessionState('IDLE');
-      setIsConnected(false);
-      setSinhalaCaption('');
-      setTamilCaption('');
-      addLog('Session closed by user.');
+      stopStream();
     }
   };
 
   const toggleLanguageMode = () => {
+    if (isRecording) {
+      stopStream();
+    }
     const nextMode = langMode === 'SI_TO_TA' ? 'TA_TO_SI' : 'SI_TO_TA';
     setLangMode(nextMode);
     setSinhalaCaption('');

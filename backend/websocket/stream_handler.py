@@ -1,9 +1,7 @@
 import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
 
-async def handle_voice_translation_stream(client_ws: WebSocket):
- 
-    await client_ws.accept()
+async def handle_translation_stream(client_ws: WebSocket):
     print("🚀 [Day 1 Server] Client successfully handshake-connected over WebSocket!")
 
     try:

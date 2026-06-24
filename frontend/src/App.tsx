@@ -1,4 +1,3 @@
-import React from 'react';
 import TranslatorPage from './pages/TranslatorPage';
 
 function App() {
