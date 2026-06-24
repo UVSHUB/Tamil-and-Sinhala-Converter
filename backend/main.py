@@ -4,9 +4,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
-from backend.websocket.stream_handler import handle_translation_stream
+from backend.websocket.stream_handler import handle_voice_translation_stream
 
-# Setup structured logger
+# Configuration of standard structure level platform-wide logging
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("backend")
 
@@ -16,7 +16,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS configuration derived from project settings
+# Apply runtime array generation splitting configuration string values
 origins = settings.ALLOWED_ORIGINS.split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -27,11 +27,11 @@ app.add_middleware(
 )
 
 # ------------------------------------------------------------------------------
-# REST Routes
+# REST Routing Layer
 # ------------------------------------------------------------------------------
 @app.get("/api/v1/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint for Docker container checks and ingress routers."""
+    """Health check endpoint for Docker container orchestration validation checks."""
     return {
         "status": "healthy",
         "service": "voice-translator-backend",
@@ -39,28 +39,32 @@ async def health_check():
     }
 
 # ------------------------------------------------------------------------------
-# WebSocket Gateway Routes
+# WebSocket Real-Time Gateway Routing Layer
 # ------------------------------------------------------------------------------
 @app.websocket("/ws/translate")
 async def websocket_translator_endpoint(websocket: WebSocket):
     """
     Main real-time voice streaming entrypoint.
-    Receives Client float32 PCM frames, downsizes/converts, forwards to Gemini API,
-    and returns synthesized audio translation and transcriptions back to Client.
+    Interfaces between Client browser sockets and Google Gemini Live API.
     """
+    # 1. Register connection tracking
     await manager.connect(websocket)
-    logger.info(f"Client connection established: {websocket.client}")
+    logger.info(f"🚀 Client connection pool registered: {websocket.client}")
     
     try:
-        await handle_translation_stream(websocket)
+        # 2. Hand off control loop directly into processing workers
+        await handle_voice_translation_stream(websocket)
+        
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        logger.info(f"Client connection disconnected: {websocket.client}")
+        logger.info(f"🔌 Client dropped stream connection context gracefully: {websocket.client}")
+        
     except Exception as e:
-        logger.error(f"Error in translation WebSocket loop: {str(e)}")
+        logger.error(f"🚨 Structural error inside translation WebSocket gateway loop: {str(e)}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except RuntimeError:
+            pass # Connection dropped during exception runtime
+            
+    finally:
+        # 3. ABSOLUTE LIFECYCLE GUARANTEE: Clear out client memory references unconditionally
         manager.disconnect(websocket)
-        await websocket.close(code=1011, reason="Internal server error")
-
-if __name__ == "__main__":
-    # Bound to 0.0.0.0 so Member 7's Nginx/Docker configs can see it flawlessly
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
