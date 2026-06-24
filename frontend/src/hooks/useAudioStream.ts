@@ -7,7 +7,8 @@ type SessionState = 'IDLE' | 'AI_LISTENING' | 'AI_THINKING' | 'AI_SPEAKING' | 'E
  * 1. Grabs mic inputs via getUserMedia.
  * 2. Offloads downsampling compute to secondary Web Worker thread.
  * 3. Streams resulting raw 16-bit mono 16kHz PCM data over WebSocket.
- * 4. Aggregates stream telemetry and logs.
+ * 4. Receives translated text and 24kHz synthesized audio bytes from the server.
+ * 5. Schedules PCM playback chunks sequentially to prevent gaps/clicks.
  */
 export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -30,6 +31,45 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
   const workerRef = useRef<Worker | null>(null);
+
+  // Playback queue reference
+  const nextPlaybackTimeRef = useRef<number>(0);
+
+  // Converts 16-bit PCM ArrayBuffer (24kHz) to Float32 and schedules it on AudioContext
+  const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
+    if (!audioContextRef.current) return;
+
+    const audioCtx = audioContextRef.current;
+    const int16Array = new Int16Array(arrayBuffer);
+    if (int16Array.length === 0) return;
+
+    // Convert Int16 [-32768, 32767] to Float32 [-1.0, 1.0]
+    const float32Array = new Float32Array(int16Array.length);
+    for (let i = 0; i < int16Array.length; i++) {
+      float32Array[i] = int16Array[i] / 32768.0;
+    }
+
+    // Create 24kHz mono AudioBuffer (Gemini Live audio output rate)
+    const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 24000);
+    audioBuffer.copyToChannel(float32Array, 0);
+
+    // Create Buffer Source Node
+    const source = audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioCtx.destination);
+
+    const now = audioCtx.currentTime;
+    // Reset playback pointer if it fell behind actual time
+    if (nextPlaybackTimeRef.current < now) {
+      nextPlaybackTimeRef.current = now;
+    }
+
+    source.start(nextPlaybackTimeRef.current);
+    nextPlaybackTimeRef.current += audioBuffer.duration;
+
+    // Update state to AI speaking when we receive output audio
+    setSessionState('AI_SPEAKING');
+  }, []);
 
   // Force-terminates all audio capture and streaming channels
   const stopStream = useCallback(() => {
@@ -70,7 +110,14 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       addLog('Initiating session. Requesting microphone credentials...');
       setSessionState('AI_LISTENING');
 
-      // 1. Capture microphone hardware stream
+      // 1. Validate secure context/microphone support
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          'Microphone API is disabled/blocked. Browsers require a Secure Context (localhost/127.0.0.1 or HTTPS) to access audio. Please visit http://localhost:5180 instead of a network IP.'
+        );
+      }
+
+      // Capture microphone hardware stream
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -82,11 +129,14 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       addLog('Microphone access granted.');
 
       // 2. Establish WebSocket socket pipeline
-      const wsUrl = `ws://${window.location.hostname}:8000/ws/translate`;
+      const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?mode=${langMode}`;
       addLog(`Connecting WebSocket to gateway: ${wsUrl}...`);
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
       socket.binaryType = 'arraybuffer';
+
+      // Reset playback timer
+      nextPlaybackTimeRef.current = 0;
 
       // 3. Spawn downsampler worker thread
       addLog('Spawning background Web Worker thread for 16kHz PCM downsampling...');
@@ -121,8 +171,8 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
 
-      // Capture native float32 chunks (4096 samples provides safe latency buffer)
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      // Capture native float32 chunks (2048 samples provides low latency buffer)
+      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
       processorNodeRef.current = processor;
 
       processor.onaudioprocess = (e) => {
@@ -151,15 +201,30 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       };
 
       socket.onmessage = (e) => {
-        try {
-          const response = JSON.parse(e.data);
-          if (response.status === 'received') {
-            addLog(`Telemetry: server received ${response.bytes} bytes. ${response.message}`);
-          } else {
-            addLog(`Received backend command: ${e.data}`);
+        if (typeof e.data === 'string') {
+          try {
+            const response = JSON.parse(e.data);
+            if (response.type === 'status') {
+              addLog(`[Server] ${response.payload.message}`);
+            } else if (response.type === 'translation') {
+              const text = response.payload.text;
+              if (langMode === 'SI_TO_TA') {
+                setTamilCaption((prev) => prev + text);
+              } else {
+                setSinhalaCaption((prev) => prev + text);
+              }
+              // Switch UI state to active speaking
+              setSessionState('AI_SPEAKING');
+            } else if (response.type === 'turn_complete') {
+              addLog('Gemini Live finished turn output.');
+              setSessionState('AI_LISTENING');
+            }
+          } catch (err) {
+            addLog(`Received text message: ${e.data}`);
           }
-        } catch (err) {
-          addLog(`Received message frame: ${e.data}`);
+        } else if (e.data instanceof ArrayBuffer) {
+          // Play back the raw 24kHz synthesized audio bytes
+          playAudioChunk(e.data);
         }
       };
 
@@ -179,7 +244,7 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       setSessionState('ERROR');
       stopStream();
     }
-  }, [addLog, stopStream]);
+  }, [addLog, stopStream, langMode, playAudioChunk]);
 
   // Clean up references on unmount
   useEffect(() => {
@@ -187,47 +252,6 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       stopStream();
     };
   }, [stopStream]);
-
-  // Simulation loop for voice-to-caption flow to verify state machine and visuals
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null;
-    if (isRecording && sessionState === 'AI_LISTENING') {
-      let count = 0;
-      interval = setInterval(() => {
-        count++;
-        if (count === 3) {
-          setSessionState('AI_THINKING');
-          if (langMode === 'SI_TO_TA') {
-            setSinhalaCaption('ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?');
-            addLog('Sinhala speech detected: "ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?"');
-          } else {
-            setTamilCaption('வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?');
-            addLog('Tamil speech detected: "வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?"');
-          }
-        }
-        if (count === 6) {
-          setSessionState('AI_SPEAKING');
-          if (langMode === 'SI_TO_TA') {
-            setTamilCaption('வணக்கம், நான் உங்களுக்கு உதவ முடியுமா?');
-            addLog('Gemini live generated Tamil synthesis audio stream...');
-          } else {
-            setSinhalaCaption('ආයුබෝවන්, මට උදව් කරන්න පුළුවන්ද?');
-            addLog('Gemini live generated Sinhala synthesis audio stream...');
-          }
-        }
-        if (count === 9) {
-          setSessionState('AI_LISTENING');
-          count = 0;
-        }
-      }, 1500);
-    }
-
-    return () => {
-      if (interval !== null) {
-        clearInterval(interval);
-      }
-    };
-  }, [isRecording, sessionState, langMode, addLog]);
 
   return {
     isConnected,
