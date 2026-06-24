@@ -5,28 +5,40 @@ import {
 } from 'lucide-react';
 import { useAudioStream } from '../hooks/useAudioStream';
 
-type LanguageMode = 'SI_TO_TA' | 'TA_TO_SI';
+const LANGUAGES = [
+  { code: 'Sinhala', name: 'Sinhala' },
+  { code: 'Tamil', name: 'Tamil' },
+  { code: 'English', name: 'English' },
+  { code: 'Korean', name: 'Korean' },
+  { code: 'Spanish', name: 'Spanish' },
+  { code: 'Japanese', name: 'Japanese' },
+  { code: 'Chinese', name: 'Chinese' },
+  { code: 'French', name: 'French' },
+  { code: 'German', name: 'German' },
+];
 
 export default function TranslatorPage() {
-  // UI states
-  const [langMode, setLangMode] = useState<LanguageMode>('SI_TO_TA');
+  // Dynamic language selectors
+  const [sourceLang, setSourceLang] = useState<string>('Sinhala');
+  const [targetLang, setTargetLang] = useState<string>('Tamil');
   const [showConfig, setShowConfig] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(80);
   const [latency] = useState<number>(45); // Mock latency
 
+  // Bind the generalized audio hook
   const {
     isConnected,
     isRecording,
     sessionState,
-    sinhalaCaption,
-    tamilCaption,
+    sourceCaption,
+    targetCaption,
     logs,
     startStream,
     stopStream,
-    setSinhalaCaption,
-    setTamilCaption,
+    setSourceCaption,
+    setTargetCaption,
     addLog,
-  } = useAudioStream(langMode);
+  } = useAudioStream(sourceLang, targetLang);
 
   const handleStartSession = () => {
     if (sessionState === 'IDLE' || sessionState === 'ERROR') {
@@ -36,15 +48,16 @@ export default function TranslatorPage() {
     }
   };
 
-  const toggleLanguageMode = () => {
+  const handleSwapLanguages = () => {
     if (isRecording) {
       stopStream();
     }
-    const nextMode = langMode === 'SI_TO_TA' ? 'TA_TO_SI' : 'SI_TO_TA';
-    setLangMode(nextMode);
-    setSinhalaCaption('');
-    setTamilCaption('');
-    addLog(`Language mode switched to: ${nextMode === 'SI_TO_TA' ? 'Sinhala ↔ Tamil' : 'Tamil ↔ Sinhala'}`);
+    const temp = sourceLang;
+    setSourceLang(targetLang);
+    setTargetLang(temp);
+    setSourceCaption('');
+    setTargetCaption('');
+    addLog(`Swapped languages: ${targetLang} ↔ ${temp}`);
   };
 
   return (
@@ -62,7 +75,7 @@ export default function TranslatorPage() {
             <h1 className="text-xl font-outfit font-bold tracking-tight text-white flex items-center gap-2">
               Gemini Live <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Voice Translator</span>
             </h1>
-            <p className="text-xs text-slate-400">Bidirectional Sinhala ↔ Tamil Audio Stream Pipeline</p>
+            <p className="text-xs text-slate-400">Bidirectional Real-Time Multilingual Audio Stream Pipeline</p>
           </div>
         </div>
 
@@ -102,22 +115,48 @@ export default function TranslatorPage() {
             
             <h2 className="text-sm font-semibold text-slate-400 tracking-wider uppercase mb-4">Translation Mode</h2>
             
-            {/* Language Selector Selector */}
-            <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/80 border border-slate-800 mb-6">
-              <div className={`flex-1 text-center py-2.5 rounded-lg text-sm transition-all font-medium ${langMode === 'SI_TO_TA' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white cursor-pointer'}`}
-                   onClick={() => langMode === 'TA_TO_SI' && toggleLanguageMode()}>
-                Sinhala
+            {/* Dynamic Language Selection Dropdowns */}
+            <div className="flex flex-col gap-4 mb-6">
+              <div>
+                <label className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider block mb-1">Source Language (You Speak)</label>
+                <select
+                  value={sourceLang}
+                  onChange={(e) => {
+                    if (isRecording) stopStream();
+                    setSourceLang(e.target.value);
+                  }}
+                  className="w-full bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/85 transition-colors cursor-pointer"
+                >
+                  {LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code} className="bg-slate-950">{l.name}</option>
+                  ))}
+                </select>
               </div>
-              <button 
-                onClick={toggleLanguageMode}
-                className="p-2.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                title="Swap Language Direction"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-              <div className={`flex-1 text-center py-2.5 rounded-lg text-sm transition-all font-medium ${langMode === 'TA_TO_SI' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white cursor-pointer'}`}
-                   onClick={() => langMode === 'SI_TO_TA' && toggleLanguageMode()}>
-                Tamil
+
+              <div className="flex justify-center">
+                <button 
+                  onClick={handleSwapLanguages}
+                  className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition-all"
+                  title="Swap Languages"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block mb-1">Target Language (AI Speaks)</label>
+                <select
+                  value={targetLang}
+                  onChange={(e) => {
+                    if (isRecording) stopStream();
+                    setTargetLang(e.target.value);
+                  }}
+                  className="w-full bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/85 transition-colors cursor-pointer"
+                >
+                  {LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code} className="bg-slate-950">{l.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -212,7 +251,7 @@ export default function TranslatorPage() {
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-500">
-                  Model configuration currently targets: <code className="text-indigo-400">gemini-2.0-flash-exp</code>
+                  Model configuration targets: <code className="text-indigo-400">gemini-3.5-live-translate-preview</code>
                 </div>
               </div>
             </div>
@@ -227,72 +266,57 @@ export default function TranslatorPage() {
             
             {/* Input Caption Card */}
             <div className={`glass-panel rounded-2xl p-6 min-h-[220px] flex flex-col justify-between text-panel-transition ${
-              (sessionState === 'AI_LISTENING' && langMode === 'SI_TO_TA') || 
-              (sessionState === 'AI_THINKING' && langMode === 'SI_TO_TA') ||
-              (sessionState === 'AI_SPEAKING' && langMode === 'TA_TO_SI')
-                ? 'text-panel-active' : ''
+              sessionState === 'AI_LISTENING' ? 'text-panel-active' : ''
             }`}>
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Sinhala Transcript</span>
-                    {(sessionState === 'AI_LISTENING' && langMode === 'SI_TO_TA') && (
+                    <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">{sourceLang} Input</span>
+                    {sessionState === 'AI_LISTENING' && (
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    )}
-                    {(sessionState === 'AI_THINKING' && langMode === 'SI_TO_TA') && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
                     )}
                   </div>
                   <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">16kHz Int16</span>
                 </div>
                 <p className="text-lg font-outfit text-white leading-relaxed">
-                  {sinhalaCaption || (
+                  {sourceCaption || (
                     <span className="text-slate-600 italic">
-                      {sessionState === 'AI_LISTENING' && langMode === 'SI_TO_TA' ? 'Speak Sinhala now...' : 'Awaiting speech input...'}
+                      {sessionState === 'AI_LISTENING' ? `Speak ${sourceLang} now...` : 'Awaiting speech input...'}
                     </span>
                   )}
                 </p>
               </div>
               <div className="pt-4 border-t border-slate-900 flex justify-between text-xs text-slate-500">
                 <span>Recognized source speech</span>
-                <span>SINHALA (Sri Lanka)</span>
+                <span className="uppercase">{sourceLang}</span>
               </div>
             </div>
 
             {/* Output Translation Card */}
             <div className={`glass-panel rounded-2xl p-6 min-h-[220px] flex flex-col justify-between text-panel-transition ${
-              (sessionState === 'AI_LISTENING' && langMode === 'TA_TO_SI') || 
-              (sessionState === 'AI_THINKING' && langMode === 'TA_TO_SI') ||
-              (sessionState === 'AI_SPEAKING' && langMode === 'SI_TO_TA')
-                ? 'text-panel-active' : ''
+              sessionState === 'AI_SPEAKING' ? 'text-panel-active' : ''
             }`}>
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Tamil Translation</span>
-                    {(sessionState === 'AI_LISTENING' && langMode === 'TA_TO_SI') && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    )}
-                    {(sessionState === 'AI_THINKING' && langMode === 'TA_TO_SI') && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                    )}
-                    {(sessionState === 'AI_SPEAKING') && (
+                    <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">{targetLang} Translation</span>
+                    {sessionState === 'AI_SPEAKING' && (
                       <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
                     )}
                   </div>
                   <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Gemini Live</span>
                 </div>
                 <p className="text-lg font-outfit text-white leading-relaxed">
-                  {tamilCaption || (
+                  {targetCaption || (
                     <span className="text-slate-600 italic">
-                      {sessionState === 'AI_LISTENING' && langMode === 'TA_TO_SI' ? 'Speak Tamil now...' : 'Awaiting translation...'}
+                      {sessionState === 'AI_LISTENING' ? `Speak to receive ${targetLang} translation...` : 'Awaiting translation...'}
                     </span>
                   )}
                 </p>
               </div>
               <div className="pt-4 border-t border-slate-900 flex justify-between text-xs text-slate-500">
                 <span>Synthesized outputs stream</span>
-                <span>TAMIL (Sri Lanka / India)</span>
+                <span className="uppercase">{targetLang}</span>
               </div>
             </div>
 

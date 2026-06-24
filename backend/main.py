@@ -42,17 +42,17 @@ async def health_check():
 # WebSocket Gateway Routes
 # ------------------------------------------------------------------------------
 @app.websocket("/ws/translate")
-async def websocket_translator_endpoint(websocket: WebSocket, mode: str = "SI_TO_TA"):
+async def websocket_translator_endpoint(websocket: WebSocket, source: str = "Sinhala", target: str = "Tamil"):
     """
     Main real-time voice streaming entrypoint.
     Receives Client float32 PCM frames, downsizes/converts, forwards to Gemini API,
     and returns synthesized audio translation and transcriptions back to Client.
     """
     await manager.connect(websocket)
-    logger.info(f"Client connection established: {websocket.client} (mode: {mode})")
+    logger.info(f"Client connection established: {websocket.client} (translating {source} -> {target})")
     
     try:
-        await handle_translation_stream(websocket, mode)
+        await handle_translation_stream(websocket, source, target)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         logger.info(f"Client connection disconnected: {websocket.client}")

@@ -10,12 +10,12 @@ type SessionState = 'IDLE' | 'AI_LISTENING' | 'AI_THINKING' | 'AI_SPEAKING' | 'E
  * 4. Receives translated text and 24kHz synthesized audio bytes from the server.
  * 5. Schedules PCM playback chunks sequentially to prevent gaps/clicks.
  */
-export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
+export function useAudioStream(sourceLang: string, targetLang: string) {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [sessionState, setSessionState] = useState<SessionState>('IDLE');
-  const [sinhalaCaption, setSinhalaCaption] = useState<string>('');
-  const [tamilCaption, setTamilCaption] = useState<string>('');
+  const [sourceCaption, setSourceCaption] = useState<string>('');
+  const [targetCaption, setTargetCaption] = useState<string>('');
   const [logs, setLogs] = useState<string[]>([
     'System initialized. Awaiting user interaction...',
   ]);
@@ -107,7 +107,7 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
   // Connects socket, grabs mic, spins up worker, starts downsampling pipeline
   const startStream = useCallback(async () => {
     try {
-      addLog('Initiating session. Requesting microphone credentials...');
+      addLog(`Initiating session. Requesting microphone credentials for ${sourceLang} ↔ ${targetLang}...`);
       setSessionState('AI_LISTENING');
 
       // 1. Validate secure context/microphone support
@@ -117,19 +117,20 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
         );
       }
 
-      // Capture microphone hardware stream
+      // Capture microphone hardware stream with auto gain, noise suppression and echo cancellation
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: true,
         },
       });
       mediaStreamRef.current = stream;
       addLog('Microphone access granted.');
 
-      // 2. Establish WebSocket socket pipeline
-      const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?mode=${langMode}`;
+      // 2. Establish WebSocket socket pipeline passing source/target language parameters
+      const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(sourceLang)}&target=${encodeURIComponent(targetLang)}`;
       addLog(`Connecting WebSocket to gateway: ${wsUrl}...`);
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
@@ -137,6 +138,10 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
 
       // Reset playback timer
       nextPlaybackTimeRef.current = 0;
+
+      // Reset captions
+      setSourceCaption('');
+      setTargetCaption('');
 
       // 3. Spawn downsampler worker thread
       addLog('Spawning background Web Worker thread for 16kHz PCM downsampling...');
@@ -146,8 +151,17 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       );
       workerRef.current = worker;
 
-      // 4. Configure Web Audio Graph
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // 4. Configure Web Audio Graph with native 16kHz sample rate for high-quality browser downsampling
+      let audioCtx: AudioContext;
+      try {
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
+          sampleRate: 16000,
+        });
+        addLog('Successfully initialized native 16kHz AudioContext.');
+      } catch (e) {
+        addLog('Native 16kHz context not supported. Falling back to default native sample rate.');
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
       audioContextRef.current = audioCtx;
       const sampleRate = audioCtx.sampleRate;
       addLog(`Native Web Audio capture context active at ${sampleRate}Hz.`);
@@ -171,8 +185,8 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
 
-      // Capture native float32 chunks (2048 samples provides low latency buffer)
-      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+      // Capture native float32 chunks (512 samples provides ultra-low latency buffer)
+      const processor = audioCtx.createScriptProcessor(512, 1, 1);
       processorNodeRef.current = processor;
 
       processor.onaudioprocess = (e) => {
@@ -197,7 +211,7 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       socket.onopen = () => {
         setIsConnected(true);
         setIsRecording(true);
-        addLog('WebSocket link established. Streaming frames to Gemini API...');
+        addLog(`WebSocket link established. Streaming ${sourceLang} speech to Gemini...`);
       };
 
       socket.onmessage = (e) => {
@@ -206,13 +220,12 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
             const response = JSON.parse(e.data);
             if (response.type === 'status') {
               addLog(`[Server] ${response.payload.message}`);
+            } else if (response.type === 'transcription') {
+              const text = response.payload.text;
+              setSourceCaption((prev) => prev + text);
             } else if (response.type === 'translation') {
               const text = response.payload.text;
-              if (langMode === 'SI_TO_TA') {
-                setTamilCaption((prev) => prev + text);
-              } else {
-                setSinhalaCaption((prev) => prev + text);
-              }
+              setTargetCaption((prev) => prev + text);
               // Switch UI state to active speaking
               setSessionState('AI_SPEAKING');
             } else if (response.type === 'turn_complete') {
@@ -244,7 +257,7 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
       setSessionState('ERROR');
       stopStream();
     }
-  }, [addLog, stopStream, langMode, playAudioChunk]);
+  }, [addLog, stopStream, sourceLang, targetLang, playAudioChunk]);
 
   // Clean up references on unmount
   useEffect(() => {
@@ -257,13 +270,13 @@ export function useAudioStream(langMode: 'SI_TO_TA' | 'TA_TO_SI') {
     isConnected,
     isRecording,
     sessionState,
-    sinhalaCaption,
-    tamilCaption,
+    sourceCaption,
+    targetCaption,
     logs,
     startStream,
     stopStream,
-    setSinhalaCaption,
-    setTamilCaption,
+    setSourceCaption,
+    setTargetCaption,
     addLog,
   };
 }

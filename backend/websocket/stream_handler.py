@@ -8,7 +8,7 @@ from backend.config.settings import settings
 
 logger = logging.getLogger("backend")
 
-async def handle_translation_stream(client_ws: WebSocket, mode: str = "SI_TO_TA"):
+async def handle_translation_stream(client_ws: WebSocket, source: str = "Sinhala", target: str = "Tamil"):
     """
     Handles a translation session for a client WebSocket:
     1. Establishes connection to the Google Gemini Live API.
@@ -28,38 +28,36 @@ async def handle_translation_stream(client_ws: WebSocket, mode: str = "SI_TO_TA"
     # Initialize Google GenAI client
     ai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-    # Determine source and target languages based on mode
-    if mode == "SI_TO_TA":
-        source_lang = "Sinhala"
-        target_lang = "Tamil"
-    else:
-        source_lang = "Tamil"
-        target_lang = "Sinhala"
-
-    # Configure the Gemini Live session parameters with strict directional instruction
-    config = {
-        "generation_config": {
-            "response_modalities": ["AUDIO"],
-        },
-        "system_instruction": {
-            "parts": [{
-                "text": (
-                    f"You are a real-time, low-latency voice translator. "
-                    f"Your job is to translate spoken {source_lang} into {target_lang}. "
-                    f"All incoming audio is in {source_lang}. You must translate it to {target_lang} immediately. "
-                    f"Output ONLY the spoken {target_lang} translation. "
-                    f"Do not output English, and do not repeat the input {source_lang}. "
-                    f"Do not include any conversational filler, preambles, or explanations."
-                )
-            }]
-        },
-        "realtime_input_config": {
-            "automatic_activity_detection": {
-                "disabled": False,
-                "silence_duration_ms": 300,
-            }
-        }
+    # Map target language to its BCP-47 code for Gemini Live Translation model
+    language_map = {
+        "Sinhala": "si",
+        "Tamil": "ta",
+        "English": "en",
+        "Korean": "ko",
+        "Spanish": "es",
+        "Japanese": "ja",
+        "Chinese": "zh",
+        "French": "fr",
+        "German": "de"
     }
+    target_code = language_map.get(target, "ta")
+
+    # Configure the Gemini Live session parameters for the Translation model
+    config = types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        translation_config=types.TranslationConfig(
+            target_language_code=target_code,
+            echo_target_language=True
+        ),
+        input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                disabled=False,
+                silence_duration_ms=300,
+            )
+        )
+    )
 
     logger.info(f"Connecting to Gemini Live API using model: {settings.GEMINI_MODEL}...")
 
@@ -106,30 +104,44 @@ async def handle_translation_stream(client_ws: WebSocket, mode: str = "SI_TO_TA"
                 try:
                     async for response in session.receive():
                         # Process response items from the Gemini Live stream
-                        if response.server_content and response.server_content.model_turn:
-                            parts = response.server_content.model_turn.parts
-                            for part in parts:
-                                # Synthesized translation audio (24kHz Mono 16-bit PCM)
-                                if part.inline_data:
-                                    audio_bytes = part.inline_data.data
-                                    await client_ws.send_bytes(audio_bytes)
-
-                                # Text transcription of the translation
-                                if part.text:
+                        if response.server_content:
+                            # 1. Check for user input audio transcription
+                            if response.server_content.input_transcription:
+                                text = response.server_content.input_transcription.text
+                                if text:
                                     await client_ws.send_json({
-                                        "type": "translation",
+                                        "type": "transcription",
                                         "payload": {
-                                            "speaker": "ai",
-                                            "text": part.text
+                                            "speaker": "user",
+                                            "text": text
                                         }
                                     })
+
+                            # 2. Check for model turn output parts
+                            if response.server_content.model_turn:
+                                parts = response.server_content.model_turn.parts
+                                for part in parts:
+                                    # Synthesized translation audio (24kHz Mono 16-bit PCM)
+                                    if part.inline_data:
+                                        audio_bytes = part.inline_data.data
+                                        await client_ws.send_bytes(audio_bytes)
+
+                                    # Text transcription of the translation
+                                    if part.text:
+                                        await client_ws.send_json({
+                                            "type": "translation",
+                                            "payload": {
+                                                "speaker": "ai",
+                                                "text": part.text
+                                            }
+                                        })
                         
-                        # Forward turn complete signal to notify client to resume capturing mic
-                        if response.server_content and response.server_content.turn_complete:
-                            await client_ws.send_json({
-                                "type": "turn_complete",
-                                "payload": {}
-                            })
+                            # 3. Forward turn complete signal to notify client to resume capturing mic
+                            if response.server_content.turn_complete:
+                                await client_ws.send_json({
+                                    "type": "turn_complete",
+                                    "payload": {}
+                                })
                 except asyncio.CancelledError:
                     pass
                 except Exception as ex:
