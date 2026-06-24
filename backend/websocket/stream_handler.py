@@ -52,6 +52,12 @@ async def handle_translation_stream(client_ws: WebSocket, mode: str = "SI_TO_TA"
                     f"Do not include any conversational filler, preambles, or explanations."
                 )
             }]
+        },
+        "realtime_input_config": {
+            "automatic_activity_detection": {
+                "disabled": False,
+                "silence_duration_ms": 300,
+            }
         }
     }
 
