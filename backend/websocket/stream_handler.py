@@ -36,6 +36,13 @@ async def handle_translation_stream(client_ws: WebSocket, source: str = "Sinhala
 
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
+        system_instruction=types.Content(
+            parts=[
+                types.Part.from_text(
+                    text="You are SinTam, a real-time, low-latency speech-to-speech translator between Sri Lankan Sinhala and Sri Lankan Tamil. You must accurately recognize colloquial Sri Lankan words, local slang, names, and cultural expressions in both languages. Keep translations natural, idiomatic, and culturally appropriate for Sri Lankan speakers."
+                )
+            ]
+        ),
         translation_config=types.TranslationConfig(
             target_language_code=target_code,
             echo_target_language=True
@@ -45,7 +52,7 @@ async def handle_translation_stream(client_ws: WebSocket, source: str = "Sinhala
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
-                silence_duration_ms=300,
+                silence_duration_ms=500,
             )
         )
     )
