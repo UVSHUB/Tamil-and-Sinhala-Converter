@@ -110,6 +110,17 @@ async def handle_translation_stream(client_ws: WebSocket, source: str = "Sinhala
                                         }
                                     })
 
+                            if response.server_content.output_transcription:
+                                text = response.server_content.output_transcription.text
+                                if text:
+                                    await client_ws.send_json({
+                                        "type": "translation",
+                                        "payload": {
+                                            "speaker": "ai",
+                                            "text": text
+                                        }
+                                    })
+
                             if response.server_content.model_turn:
                                 for part in response.server_content.model_turn.parts:
                                     if part.inline_data:
