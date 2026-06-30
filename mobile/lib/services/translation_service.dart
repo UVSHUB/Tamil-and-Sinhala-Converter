@@ -66,7 +66,7 @@ class TranslationService extends ChangeNotifier {
 
     try {
       _channel = WebSocketChannel.connect(
-        Uri.parse('ws://10.112.129.88:8000/ws/translate'),
+        Uri.parse('wss://hasenalbanna-voice-translator-backend.hf.space/ws/translate'),
       );
 
       _channel!.stream.listen(
