@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply font-sans bg-slate-50 text-slate-800 min-h-screen overflow-x-hidden;
+    @apply font-sans bg-slate-950 text-white min-h-screen overflow-x-hidden overflow-y-hidden;
   }
 }
 
@@ -108,21 +108,21 @@
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Scrollbar Styling */
+/* Scrollbar Styling — dark theme */
 .scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: rgba(241, 245, 249, 0.8);
+  background: rgba(15, 23, 42, 0.8);
   border-radius: 3px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+  background: rgba(51, 65, 85, 0.8);
   border-radius: 3px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(100, 116, 139, 0.6);
 }
