@@ -33,6 +33,12 @@ export default function TranslatorPage() {
   const [showConfig, setShowConfig] = useState<boolean>(false);
   const [showLogs, setShowLogs] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(80);
+
+  // Always-current language refs to avoid stale closures in archival effect
+  const sourceLangArchiveRef = useRef<string>('Sinhala');
+  const targetLangArchiveRef = useRef<string>('Tamil');
+  useEffect(() => { sourceLangArchiveRef.current = sourceLang; }, [sourceLang]);
+  useEffect(() => { targetLangArchiveRef.current = targetLang; }, [targetLang]);
   
   // Persistent chat history from LocalStorage
   const [history, setHistory] = useState<ChatMessage[]>(() => {
@@ -57,7 +63,6 @@ export default function TranslatorPage() {
   // Bind the generalized audio hook
   const {
     isConnected,
-    isRecording,
     sessionState,
     sourceCaption,
     targetCaption,
@@ -72,6 +77,11 @@ export default function TranslatorPage() {
     addLog,
     micAnalyserRef,
     aiAnalyserRef,
+    detectedGender,
+    voiceMode,
+    setVoiceMode,
+    ttsVoice,
+    setTtsVoice,
   } = useAudioStream(sourceLang, targetLang);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -193,7 +203,8 @@ export default function TranslatorPage() {
     };
   }, [sessionState, isConnected, micAnalyserRef, aiAnalyserRef]);
 
-  // Archive complete transcripts into chat history when a translation turn completes
+  // Archive complete transcripts into chat history when a translation turn completes.
+  // Uses refs for language to avoid stale closures when language is swapped mid-turn.
   useEffect(() => {
     const isStateTransition = prevSessionState.current !== sessionState;
     if (isStateTransition && (sessionState === 'AI_LISTENING' || sessionState === 'IDLE')) {
@@ -204,6 +215,9 @@ export default function TranslatorPage() {
         if (userText || aiText) {
           const timestamp = new Date();
           const newMessages: ChatMessage[] = [];
+          // Use refs so we always get the language that was active during this turn
+          const currentSrc = sourceLangArchiveRef.current;
+          const currentTgt = targetLangArchiveRef.current;
 
           if (userText) {
             newMessages.push({
@@ -211,7 +225,7 @@ export default function TranslatorPage() {
               sender: 'user',
               text: userText,
               timestamp,
-              language: sourceLang,
+              language: currentSrc,
             });
           }
 
@@ -221,7 +235,7 @@ export default function TranslatorPage() {
               sender: 'ai',
               text: aiText,
               timestamp,
-              language: targetLang,
+              language: currentTgt,
             });
           }
 
@@ -232,7 +246,7 @@ export default function TranslatorPage() {
       }
     }
     prevSessionState.current = sessionState;
-  }, [sessionState, sourceCaption, targetCaption, sourceLang, targetLang, setSourceCaption, setTargetCaption]);
+  }, [sessionState, sourceCaption, targetCaption, setSourceCaption, setTargetCaption]);
 
   const handleStartSession = () => {
     if (sessionState === 'IDLE' || sessionState === 'ERROR') {
@@ -243,15 +257,16 @@ export default function TranslatorPage() {
   };
 
   const handleSwapLanguages = () => {
-    if (isRecording) {
-      stopStream();
-    }
+    // Swap the values; the language-change effect in useAudioStream will
+    // reconnect the WebSocket automatically with the new languages.
     const temp = sourceLang;
-    setSourceLang(targetLang);
-    setTargetLang(temp);
+    const newSrc = targetLang;
+    const newTgt = temp;
+    setSourceLang(newSrc);
+    setTargetLang(newTgt);
     setSourceCaption('');
     setTargetCaption('');
-    addLog(`Swapped languages: ${targetLang} ↔ ${temp}`);
+    addLog(`Swapped languages: ${newSrc} ↔ ${newTgt}`);
   };
 
   const handleClearChat = () => {
@@ -357,8 +372,8 @@ export default function TranslatorPage() {
           <select
             value={sourceLang}
             onChange={(e) => {
-              if (isRecording) stopStream();
               setSourceLang(e.target.value);
+              // The language-change effect in useAudioStream restarts WS automatically
             }}
             className="w-full bg-white border border-slate-200 rounded-xl pl-3 pr-8 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all duration-300 appearance-none cursor-pointer hover:bg-slate-50 text-center shadow-sm"
           >
@@ -386,8 +401,8 @@ export default function TranslatorPage() {
           <select
             value={targetLang}
             onChange={(e) => {
-              if (isRecording) stopStream();
               setTargetLang(e.target.value);
+              // The language-change effect in useAudioStream restarts WS automatically
             }}
             className="w-full bg-white border border-slate-200 rounded-xl pl-3 pr-8 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all duration-300 appearance-none cursor-pointer hover:bg-slate-50 text-center shadow-sm"
           >
@@ -507,19 +522,69 @@ export default function TranslatorPage() {
             <Settings className="h-3.5 w-3.5 text-indigo-500" />
             Parameter Configurations
           </h3>
-          <div className="flex flex-col gap-3">
-            <label className="text-[11px] text-slate-500 font-semibold flex justify-between">
-              <span>TTS Playback Volume</span>
-              <span className="text-indigo-600 font-bold">{volume}%</span>
-            </label>
-            <input 
-              type="range" 
-              min="0" 
-              max="100"
-              value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
-              className="w-full accent-indigo-600 bg-slate-200 h-1.5 rounded-lg appearance-none cursor-pointer" 
-            />
+          <div className="flex flex-col gap-4">
+            {/* Playback Volume */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] text-slate-500 font-semibold flex justify-between">
+                <span>TTS Playback Volume</span>
+                <span className="text-indigo-600 font-bold">{volume}%</span>
+              </label>
+              <input 
+                type="range" 
+                min="0" 
+                max="100"
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-full accent-indigo-600 bg-slate-200 h-1.5 rounded-lg appearance-none cursor-pointer" 
+              />
+            </div>
+
+            {/* Translation Voice Mode */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] text-slate-500 font-semibold">TTS Voice Translation Mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVoiceMode('auto')}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all border ${
+                    voiceMode === 'auto'
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  ✨ Auto (Gender-based)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVoiceMode('manual')}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all border ${
+                    voiceMode === 'manual'
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  ⚙️ Manual Selection
+                </button>
+              </div>
+            </div>
+
+            {/* Manual Prebuilt Voice List */}
+            {voiceMode === 'manual' && (
+              <div className="flex flex-col gap-1.5 animate-fadeIn">
+                <label className="text-[11px] text-slate-500 font-semibold">Select Output Voice</label>
+                <select
+                  value={ttsVoice}
+                  onChange={(e) => setTtsVoice(e.target.value as any)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm"
+                >
+                  <option value="Aoede">Aoede (Female - breezy & light)</option>
+                  <option value="Kore">Kore (Female - firm & confident)</option>
+                  <option value="Charon">Charon (Male - clear & informative)</option>
+                  <option value="Puck">Puck (Male - upbeat & playful)</option>
+                  <option value="Fenrir">Fenrir (Male - energetic)</option>
+                </select>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -606,6 +671,25 @@ export default function TranslatorPage() {
             className="w-full h-full"
           />
         </div>
+
+        {/* Voice Gender Detection Status */}
+        {sessionState === 'AI_LISTENING' && (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-300">
+            {detectedGender ? (
+              <span className={`px-2.5 py-1 rounded-full border ${
+                detectedGender === 'female' 
+                  ? 'bg-pink-50 border-pink-200 text-pink-700 shadow-sm animate-pulse' 
+                  : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm animate-pulse'
+              }`}>
+                {detectedGender === 'female' ? '👩 Female Speaker' : '👨 Male Speaker'} Detected
+              </span>
+            ) : (
+              <span className="text-slate-400 animate-pulse bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">
+                🔍 Analyzing voice pitch...
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Pipeline Status Indicator */}
         <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">

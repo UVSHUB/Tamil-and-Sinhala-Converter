@@ -38,13 +38,14 @@ async def health_check():
 async def websocket_translator_endpoint(
     websocket: WebSocket,
     source: str = "Sinhala",
-    target: str = "Tamil"
+    target: str = "Tamil",
+    voice: str = "Aoede"
 ):
     await manager.connect(websocket)
-    logger.info(f"Client connected: {websocket.client} (translating {source} -> {target})")
+    logger.info(f"Client connected: {websocket.client} (translating {source} -> {target} with initial voice: {voice})")
 
     try:
-        await handle_translation_stream(websocket, source, target)
+        await handle_translation_stream(websocket, source, target, voice)
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected: {websocket.client}")
