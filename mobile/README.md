@@ -26,3 +26,5 @@ samples, guidance on mobile development, and a full API reference.
 <!-- ui update 5 -->
 
 <!-- ui update 6 -->
+
+<!-- ui update 7 -->
