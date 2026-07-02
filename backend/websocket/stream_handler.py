@@ -35,13 +35,9 @@ async def handle_translation_stream(client_ws: WebSocket, source: str = "Sinhala
     target_code = language_map.get(target, "ta")
 
     config = types.LiveConnectConfig(
-        response_modalities=["AUDIO"],
-        translation_config=types.TranslationConfig(
-            target_language_code=target_code,
-            echo_target_language=True
-        ),
+        response_modalities=["TEXT"],
+        system_instruction=types.Content(parts=[types.Part.from_text(f"You are a professional translator. Translate everything the user says from {source} to {target}. Do not add any conversational filler. Just output the direct translation.")]),
         input_audio_transcription=types.AudioTranscriptionConfig(),
-        output_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
