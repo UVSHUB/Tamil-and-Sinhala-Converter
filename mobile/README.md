@@ -48,3 +48,5 @@ samples, guidance on mobile development, and a full API reference.
 <!-- ui update 16 -->
 
 <!-- ui update 17 -->
+
+<!-- ui update 18 -->
