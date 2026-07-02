@@ -5,6 +5,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 from backend.config.settings import settings
+from backend.websocket.turn_buffer import DeferredTurnOutput
 
 logger = logging.getLogger("backend")
 
@@ -185,6 +186,7 @@ async def handle_translation_stream(
 
             # ── Gemini -> Client ──────────────────────────────────────────────
             async def gemini_to_client():
+                deferred_turn = DeferredTurnOutput()
                 try:
                     async for response in session.receive():
                         if not response.server_content:
@@ -204,31 +206,33 @@ async def handle_translation_stream(
 
                         # Translated output text
                         if sc.output_transcription and sc.output_transcription.text:
-                            await client_ws.send_json({
-                                "type": "translation",
-                                "payload": {
-                                    "speaker": "ai",
-                                    "text": sc.output_transcription.text,
-                                },
-                            })
+                            deferred_turn.add_translation(sc.output_transcription.text)
 
                         # Audio bytes + text from model turn
                         if sc.model_turn:
                             for part in sc.model_turn.parts:
                                 if part.inline_data and part.inline_data.data:
-                                    await client_ws.send_bytes(part.inline_data.data)
+                                    deferred_turn.add_audio(part.inline_data.data)
                                 # Only emit text from model_turn for non-translate model
                                 # (translate model already emits via output_transcription)
                                 if part.text and not is_translate_model:
-                                    await client_ws.send_json({
-                                        "type": "translation",
-                                        "payload": {
-                                            "speaker": "ai",
-                                            "text": part.text,
-                                        },
-                                    })
+                                    deferred_turn.add_translation(part.text)
 
                         if sc.turn_complete:
+                            translation = deferred_turn.translation_text()
+                            if translation:
+                                await client_ws.send_json({
+                                    "type": "translation",
+                                    "payload": {
+                                        "speaker": "ai",
+                                        "text": translation,
+                                    },
+                                })
+
+                            for audio_chunk in deferred_turn.audio_chunks:
+                                await client_ws.send_bytes(audio_chunk)
+
+                            deferred_turn.clear()
                             await client_ws.send_json({
                                 "type": "turn_complete",
                                 "payload": {},
