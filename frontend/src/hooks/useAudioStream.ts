@@ -1,14 +1,64 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { getAudioWorkletUrl } from '../audio/audio-helper';
 
 type SessionState = 'IDLE' | 'AI_LISTENING' | 'AI_THINKING' | 'AI_SPEAKING' | 'ERROR';
 
 /**
- * Custom hook to manage the full life-cycle of low-latency client-side audio streaming:
- * 1. Grabs mic inputs via getUserMedia.
- * 2. Offloads downsampling compute to secondary Web Worker thread.
- * 3. Streams resulting raw 16-bit mono 16kHz PCM data over WebSocket.
- * 4. Receives translated text and 24kHz synthesized audio bytes from the server.
- * 5. Schedules PCM playback chunks sequentially to prevent gaps/clicks.
+ * Autocorrelation algorithm to detect the fundamental frequency (pitch) of human voice.
+ */
+function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
+  const SIZE = buffer.length;
+  let rms = 0;
+  for (let i = 0; i < SIZE; i++) {
+    const val = buffer[i];
+    rms += val * val;
+  }
+  rms = Math.sqrt(rms / SIZE);
+  if (rms < 0.015) return -1;
+
+  let r1 = 0;
+  let r2 = SIZE - 1;
+  const thres = 0.2;
+  for (let i = 0; i < SIZE / 2; i++) {
+    if (Math.abs(buffer[i]) < thres) { r1 = i; } else { break; }
+  }
+  for (let i = SIZE - 1; i >= SIZE / 2; i--) {
+    if (Math.abs(buffer[i]) < thres) { r2 = i; } else { break; }
+  }
+
+  const signal = buffer.subarray(r1, r2);
+  const len = signal.length;
+  if (len < 128) return -1;
+
+  const c = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    for (let j = 0; j < len - i; j++) {
+      c[i] += signal[j] * signal[j + i];
+    }
+  }
+
+  let d = 0;
+  while (d < len - 1 && c[d] > c[d + 1]) d++;
+
+  let maxval = -1;
+  let maxpos = -1;
+  for (let i = d; i < len - 1; i++) {
+    if (c[i] > c[i - 1] && c[i] > c[i + 1]) {
+      if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+    }
+  }
+
+  if (maxpos !== -1) {
+    const pitch = sampleRate / maxpos;
+    if (pitch >= 70 && pitch <= 400) return pitch;
+  }
+  return -1;
+}
+
+/**
+ * Custom hook to manage the full life-cycle of low-latency audio streaming.
+ * Fixed: language not updating mid-session, no response output, excessive delay,
+ * language switching bugs, stale closures in reconnect, and text sending issues.
  */
 export function useAudioStream(sourceLang: string, targetLang: string) {
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -16,267 +66,390 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
   const [sessionState, setSessionState] = useState<SessionState>('IDLE');
   const [sourceCaption, setSourceCaption] = useState<string>('');
   const [targetCaption, setTargetCaption] = useState<string>('');
-  const [logs, setLogs] = useState<string[]>([
-    'System initialized. Awaiting user interaction...',
-  ]);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [logs, setLogs] = useState<string[]>(['System initialized. Awaiting user interaction...']);
+
+  const [detectedGender, setDetectedGender] = useState<'male' | 'female' | null>(null);
+  const [voiceMode, setVoiceMode] = useState<'auto' | 'manual'>('auto');
+  const [ttsVoice, setTtsVoice] = useState<'Aoede' | 'Kore' | 'Charon' | 'Puck' | 'Fenrir'>('Aoede');
 
   const addLog = useCallback((msg: string) => {
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 15)]);
   }, []);
 
-  // Web API references
+  const toggleMute = useCallback(() => setIsMuted((prev) => !prev), []);
+
+  // Refs for WebSocket and audio infra
   const socketRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
-  const workerRef = useRef<Worker | null>(null);
-
-  // Playback queue reference
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const detectedGenderRef = useRef<'male' | 'female' | null>(null);
+  const pitchIntervalRef = useRef<any>(null);
+  const pcmBufferQueueRef = useRef<ArrayBuffer[]>([]);
+  const isWsConnectingRef = useRef<boolean>(false);
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const aiAnalyserRef = useRef<AnalyserNode | null>(null);
+  const reconnectAttemptsRef = useRef<number>(0);
+  const reconnectTimerRef = useRef<any>(null);
+  const isManualCloseRef = useRef<boolean>(false);
+  const pendingTextRef = useRef<string | null>(null);
   const nextPlaybackTimeRef = useRef<number>(0);
+  const isActiveSessionRef = useRef<boolean>(false);
 
-  // Converts 16-bit PCM ArrayBuffer (24kHz) to Float32 and schedules it on AudioContext
+  // Always-current language/voice refs (avoid stale closures)
+  const sourceLangRef = useRef<string>(sourceLang);
+  const targetLangRef = useRef<string>(targetLang);
+  const voiceModeRef = useRef<'auto' | 'manual'>(voiceMode);
+  const ttsVoiceRef = useRef<string>(ttsVoice);
+
+  useEffect(() => { sourceLangRef.current = sourceLang; }, [sourceLang]);
+  useEffect(() => { targetLangRef.current = targetLang; }, [targetLang]);
+  useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
+  useEffect(() => { ttsVoiceRef.current = ttsVoice; }, [ttsVoice]);
+
+  // Play synthesized 24kHz PCM audio chunk from Gemini
   const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
+    if (isMuted) return;
     if (!audioContextRef.current) return;
 
     const audioCtx = audioContextRef.current;
     const int16Array = new Int16Array(arrayBuffer);
     if (int16Array.length === 0) return;
 
-    // Convert Int16 [-32768, 32767] to Float32 [-1.0, 1.0]
     const float32Array = new Float32Array(int16Array.length);
     for (let i = 0; i < int16Array.length; i++) {
       float32Array[i] = int16Array[i] / 32768.0;
     }
 
-    // Create 24kHz mono AudioBuffer (Gemini Live audio output rate)
     const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 24000);
     audioBuffer.copyToChannel(float32Array, 0);
 
-    // Create Buffer Source Node
     const source = audioCtx.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
+
+    if (!aiAnalyserRef.current) {
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      aiAnalyserRef.current = analyser;
+    }
+    source.connect(aiAnalyserRef.current);
+    aiAnalyserRef.current.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
-    // Reset playback pointer if it fell behind actual time
-    if (nextPlaybackTimeRef.current < now) {
-      nextPlaybackTimeRef.current = now;
-    }
-
+    if (nextPlaybackTimeRef.current < now) nextPlaybackTimeRef.current = now;
     source.start(nextPlaybackTimeRef.current);
     nextPlaybackTimeRef.current += audioBuffer.duration;
 
-    // Update state to AI speaking when we receive output audio
     setSessionState('AI_SPEAKING');
+  }, [isMuted]);
+
+  // Close only the WebSocket without tearing down mic/audio
+  const closeSocket = useCallback(() => {
+    if (socketRef.current) {
+      const s = socketRef.current;
+      s.onclose = null;
+      s.onerror = null;
+      s.onmessage = null;
+      s.onopen = null;
+      if (s.readyState === WebSocket.OPEN || s.readyState === WebSocket.CONNECTING) {
+        s.close();
+      }
+      socketRef.current = null;
+    }
+    setIsConnected(false);
+    isWsConnectingRef.current = false;
   }, []);
 
-  // Force-terminates all audio capture and streaming channels
+  // Open (or reopen) the WebSocket, reusing existing mic/audio context
+  const connectWebSocket = useCallback((voiceName: string, src: string, tgt: string) => {
+    if (isWsConnectingRef.current) return;
+    closeSocket();
+    isWsConnectingRef.current = true;
+
+    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}`;
+    addLog(`Connecting: ${src} → ${tgt} | voice: ${voiceName}`);
+
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+    socket.binaryType = 'arraybuffer';
+    nextPlaybackTimeRef.current = 0;
+
+    socket.onopen = () => {
+      setIsConnected(true);
+      setIsRecording(true);
+      setSessionState('AI_LISTENING');
+      isWsConnectingRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      addLog(`Connected: ${src} → ${tgt}. Start speaking!`);
+
+      // Flush buffered audio — but only if it's a small queue (recent audio)
+      // A large queue means we're replaying stale audio which floods the API
+      if (pcmBufferQueueRef.current.length > 0 && pcmBufferQueueRef.current.length <= 30) {
+        for (const chunk of pcmBufferQueueRef.current) socket.send(chunk);
+        addLog(`Flushed ${pcmBufferQueueRef.current.length} buffered packets.`);
+      } else if (pcmBufferQueueRef.current.length > 30) {
+        addLog(`Discarded ${pcmBufferQueueRef.current.length} stale audio packets (too old).`);
+      }
+      pcmBufferQueueRef.current = [];
+
+      // Send pending text
+      if (pendingTextRef.current) {
+        socket.send(pendingTextRef.current);
+        addLog(`Sent pending text: "${pendingTextRef.current}"`);
+        pendingTextRef.current = null;
+      }
+    };
+
+    socket.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        try {
+          const response = JSON.parse(e.data);
+          if (response.type === 'status') {
+            addLog(`[Server] ${response.payload.message}`);
+          } else if (response.type === 'transcription') {
+            setSourceCaption(response.payload.text);
+          } else if (response.type === 'translation') {
+            setTargetCaption(response.payload.text);
+            setSessionState('AI_SPEAKING');
+          } else if (response.type === 'turn_complete') {
+            addLog('Turn complete.');
+            setSessionState('AI_LISTENING');
+          }
+        } catch {
+          addLog(`Raw message: ${e.data}`);
+        }
+      } else if (e.data instanceof ArrayBuffer) {
+        playAudioChunk(e.data);
+      }
+    };
+
+    socket.onerror = () => {
+      addLog('WebSocket error.');
+      setSessionState('ERROR');
+    };
+
+    socket.onclose = (event) => {
+      addLog(`WebSocket closed (code: ${event.code}).`);
+      setIsConnected(false);
+      setIsRecording(false);
+      isWsConnectingRef.current = false;
+
+      if (!isManualCloseRef.current && isActiveSessionRef.current && reconnectAttemptsRef.current < 5) {
+        setSessionState('AI_THINKING');
+        reconnectAttemptsRef.current += 1;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        addLog(`Reconnecting in ${delay}ms (Attempt ${reconnectAttemptsRef.current}/5)...`);
+
+        reconnectTimerRef.current = setTimeout(() => {
+          const voice = voiceModeRef.current === 'manual'
+            ? ttsVoiceRef.current
+            : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
+          connectWebSocket(voice, sourceLangRef.current, targetLangRef.current);
+        }, delay);
+      } else {
+        if (!isActiveSessionRef.current) setSessionState('IDLE');
+      }
+    };
+  }, [addLog, closeSocket, playAudioChunk]);
+
+  // Full session start: grab mic, load worklet, connect WebSocket
+  const startStream = useCallback(async () => {
+    try {
+      isManualCloseRef.current = false;
+      isActiveSessionRef.current = true;
+      reconnectAttemptsRef.current = 0;
+
+      const src = sourceLangRef.current;
+      const tgt = targetLangRef.current;
+      addLog(`Starting session: ${src} → ${tgt}`);
+      setSessionState('AI_LISTENING');
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Microphone not supported. Use localhost or HTTPS.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      mediaStreamRef.current = stream;
+      addLog('Microphone access granted.');
+      pcmBufferQueueRef.current = [];
+      isWsConnectingRef.current = false;
+      setSourceCaption('');
+      setTargetCaption('');
+
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = audioCtx;
+      addLog(`Audio context at ${audioCtx.sampleRate}Hz.`);
+
+      const workletUrl = getAudioWorkletUrl();
+      await audioCtx.audioWorklet.addModule(workletUrl);
+
+      const workletNode = new AudioWorkletNode(audioCtx, 'audio-recorder-processor', {
+        processorOptions: { inputSampleRate: audioCtx.sampleRate }
+      });
+      workletNodeRef.current = workletNode;
+
+      workletNode.port.onmessage = (event: MessageEvent) => {
+        const pcmBuffer = event.data;
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          socketRef.current.send(pcmBuffer);
+        } else if (isWsConnectingRef.current) {
+          // Cap the queue — only keep the most recent ~250ms of audio (30 packets × ~8ms each)
+          // Older audio is stale and flooding Gemini with it causes 1011 errors
+          pcmBufferQueueRef.current.push(pcmBuffer);
+          if (pcmBufferQueueRef.current.length > 30) {
+            pcmBufferQueueRef.current.shift(); // drop oldest
+          }
+        }
+      };
+
+      const micAnalyser = audioCtx.createAnalyser();
+      micAnalyser.fftSize = 2048;
+      micAnalyserRef.current = micAnalyser;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      sourceNodeRef.current = source;
+      source.connect(micAnalyser);
+      micAnalyser.connect(workletNode);
+      addLog('Audio pipeline ready.');
+
+      const currentVoiceMode = voiceModeRef.current;
+      const currentTtsVoice = ttsVoiceRef.current;
+
+      if (currentVoiceMode === 'manual') {
+        connectWebSocket(currentTtsVoice, src, tgt);
+      } else {
+        const pitchBuffer = new Float32Array(2048);
+        const consecutiveGenders: ('male' | 'female')[] = [];
+
+        const timeoutId = setTimeout(() => {
+          if (pitchIntervalRef.current) {
+            clearInterval(pitchIntervalRef.current);
+            pitchIntervalRef.current = null;
+          }
+          if (!socketRef.current && !isWsConnectingRef.current) {
+            addLog('Pitch timeout. Connecting with default voice (Aoede)...');
+            connectWebSocket('Aoede', src, tgt);
+          }
+        }, 1000);
+
+        pitchIntervalRef.current = setInterval(() => {
+          if (!micAnalyserRef.current) return;
+          micAnalyserRef.current.getFloatTimeDomainData(pitchBuffer);
+          const pitch = autoCorrelate(pitchBuffer, audioCtx.sampleRate);
+
+          if (pitch > 0) {
+            const gender = pitch >= 160 ? 'female' : 'male';
+            consecutiveGenders.push(gender);
+            if (consecutiveGenders.length > 3) consecutiveGenders.shift();
+
+            if (consecutiveGenders.length === 3 && consecutiveGenders.every(g => g === consecutiveGenders[0])) {
+              clearTimeout(timeoutId);
+              clearInterval(pitchIntervalRef.current);
+              pitchIntervalRef.current = null;
+
+              const stableGender = consecutiveGenders[0];
+              detectedGenderRef.current = stableGender;
+              setDetectedGender(stableGender);
+              addLog(`Voice: ${stableGender} (${Math.round(pitch)}Hz). Connecting...`);
+
+              connectWebSocket(stableGender === 'male' ? 'Charon' : 'Aoede', src, tgt);
+            }
+          }
+        }, 150);
+      }
+    } catch (error: any) {
+      addLog(`Failed to start: ${error.message || error}`);
+      setSessionState('ERROR');
+      stopStream();
+    }
+  }, [addLog, connectWebSocket]);
+
+  // Full session stop: tear down everything
   const stopStream = useCallback(() => {
+    isManualCloseRef.current = true;
+    isActiveSessionRef.current = false;
     setIsRecording(false);
     setSessionState('IDLE');
 
-    if (processorNodeRef.current) {
-      processorNodeRef.current.disconnect();
-      processorNodeRef.current = null;
+    if (pitchIntervalRef.current) {
+      clearInterval(pitchIntervalRef.current);
+      pitchIntervalRef.current = null;
     }
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.disconnect();
-      sourceNodeRef.current = null;
+    detectedGenderRef.current = null;
+    setDetectedGender(null);
+    pcmBufferQueueRef.current = [];
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
     }
+    reconnectAttemptsRef.current = 0;
+
+    if (workletNodeRef.current) { workletNodeRef.current.disconnect(); workletNodeRef.current = null; }
+    if (sourceNodeRef.current) { sourceNodeRef.current.disconnect(); sourceNodeRef.current = null; }
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
-    if (workerRef.current) {
-      workerRef.current.terminate();
-      workerRef.current = null;
+
+    closeSocket();
+    micAnalyserRef.current = null;
+    aiAnalyserRef.current = null;
+    addLog('Session terminated.');
+  }, [addLog, closeSocket]);
+
+  const sendText = useCallback((text: string) => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(text);
+      addLog(`Sent text: "${text}"`);
+    } else {
+      pendingTextRef.current = text;
+      addLog(`Queuing text: "${text}"`);
+      if (!isActiveSessionRef.current) startStream();
     }
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
-    }
-    setIsConnected(false);
-    addLog('Session closed. Audio capture and WebSocket pipeline terminated.');
-  }, [addLog]);
+  }, [addLog, startStream]);
 
-  // Connects socket, grabs mic, spins up worker, starts downsampling pipeline
-  const startStream = useCallback(async () => {
-    try {
-      addLog(`Initiating session. Requesting microphone credentials for ${sourceLang} ↔ ${targetLang}...`);
-      setSessionState('AI_LISTENING');
-
-      // 1. Validate secure context/microphone support
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(
-          'Microphone API is disabled/blocked. Browsers require a Secure Context (localhost/127.0.0.1 or HTTPS) to access audio. Please visit http://localhost:5180 instead of a network IP.'
-        );
-      }
-
-      // Capture microphone hardware stream with auto gain, noise suppression and echo cancellation
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      mediaStreamRef.current = stream;
-      addLog('Microphone access granted.');
-
-      // 2. Establish WebSocket socket pipeline passing source/target language parameters
-      const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(sourceLang)}&target=${encodeURIComponent(targetLang)}`;
-      addLog(`Connecting WebSocket to gateway: ${wsUrl}...`);
-      const socket = new WebSocket(wsUrl);
-      socketRef.current = socket;
-      socket.binaryType = 'arraybuffer';
-
-      // Reset playback timer
-      nextPlaybackTimeRef.current = 0;
-
-      // Reset captions
-      setSourceCaption('');
-      setTargetCaption('');
-
-      // 3. Spawn downsampler worker thread
-      addLog('Spawning background Web Worker thread for 16kHz PCM downsampling...');
-      const worker = new Worker(
-        new URL('../workers/audio-processor.worker.ts', import.meta.url),
-        { type: 'module' }
-      );
-      workerRef.current = worker;
-
-      // 4. Configure Web Audio Graph with native 16kHz sample rate for high-quality browser downsampling
-      let audioCtx: AudioContext;
-      try {
-        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
-          sampleRate: 16000,
-        });
-        addLog('Successfully initialized native 16kHz AudioContext.');
-      } catch (e) {
-        addLog('Native 16kHz context not supported. Falling back to default native sample rate.');
-        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      audioContextRef.current = audioCtx;
-      const sampleRate = audioCtx.sampleRate;
-      addLog(`Native Web Audio capture context active at ${sampleRate}Hz.`);
-
-      // Send initial sampling parameters to the worker thread
-      worker.postMessage({
-        command: 'init',
-        payload: { sampleRate },
-      });
-
-      // Handle raw downsampled PCM chunks returned from worker thread
-      worker.onmessage = (event: MessageEvent) => {
-        const { type, buffer } = event.data;
-        if (type === 'pcm' && socket.readyState === WebSocket.OPEN) {
-          // Stream raw 16-bit PCM packet to WebSocket gateway
-          socket.send(buffer);
-        }
-      };
-
-      // Connect nodes
-      const source = audioCtx.createMediaStreamSource(stream);
-      sourceNodeRef.current = source;
-
-      // Capture native float32 chunks (512 samples provides ultra-low latency buffer)
-      const processor = audioCtx.createScriptProcessor(512, 1, 1);
-      processorNodeRef.current = processor;
-
-      processor.onaudioprocess = (e) => {
-        const inputChannelData = e.inputBuffer.getChannelData(0);
-        // Slice a copy to prevent garbage collector collisions when transferring ownership
-        const bufferCopy = new Float32Array(inputChannelData).buffer;
-
-        // Post chunk buffer to worker for off-thread processing
-        worker.postMessage({
-          command: 'process',
-          payload: {
-            buffer: bufferCopy,
-            channels: 1,
-          },
-        }, [bufferCopy]);
-      };
-
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
-
-      // WebSocket Handlers
-      socket.onopen = () => {
-        setIsConnected(true);
-        setIsRecording(true);
-        addLog(`WebSocket link established. Streaming ${sourceLang} speech to Gemini...`);
-      };
-
-      socket.onmessage = (e) => {
-        if (typeof e.data === 'string') {
-          try {
-            const response = JSON.parse(e.data);
-            if (response.type === 'status') {
-              addLog(`[Server] ${response.payload.message}`);
-            } else if (response.type === 'transcription') {
-              const text = response.payload.text;
-              setSourceCaption((prev) => prev + text);
-            } else if (response.type === 'translation') {
-              const text = response.payload.text;
-              setTargetCaption((prev) => prev + text);
-              // Switch UI state to active speaking
-              setSessionState('AI_SPEAKING');
-            } else if (response.type === 'turn_complete') {
-              addLog('Gemini Live finished turn output.');
-              setSessionState('AI_LISTENING');
-            }
-          } catch (err) {
-            addLog(`Received text message: ${e.data}`);
-          }
-        } else if (e.data instanceof ArrayBuffer) {
-          // Play back the raw 24kHz synthesized audio bytes
-          playAudioChunk(e.data);
-        }
-      };
-
-      socket.onerror = () => {
-        addLog('WebSocket connection error.');
-        setSessionState('ERROR');
-      };
-
-      socket.onclose = (event) => {
-        addLog(`WebSocket connection closed (code: ${event.code}).`);
-        setIsConnected(false);
-        setIsRecording(false);
-        setSessionState('IDLE');
-      };
-    } catch (error: any) {
-      addLog(`Failed to initialize stream pipeline: ${error.message || error}`);
-      setSessionState('ERROR');
-      stopStream();
-    }
-  }, [addLog, stopStream, sourceLang, targetLang, playAudioChunk]);
-
-  // Clean up references on unmount
+  // Restart WebSocket when language changes mid-session (don't re-grab mic)
   useEffect(() => {
-    return () => {
-      stopStream();
-    };
-  }, [stopStream]);
+    if (!isActiveSessionRef.current || !audioContextRef.current) return;
+    if (!socketRef.current && !isWsConnectingRef.current) return;
+
+    addLog(`Language changed: ${sourceLang} → ${targetLang}. Reconnecting...`);
+    setSourceCaption('');
+    setTargetCaption('');
+
+    const voice = voiceModeRef.current === 'manual'
+      ? ttsVoiceRef.current
+      : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
+
+    connectWebSocket(voice, sourceLang, targetLang);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceLang, targetLang]);
+
+  // Reconnect with new voice when manual voice changes
+  useEffect(() => {
+    if (voiceMode === 'manual' && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      addLog(`Voice changed to ${ttsVoice}. Reconnecting...`);
+      connectWebSocket(ttsVoice, sourceLangRef.current, targetLangRef.current);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ttsVoice, voiceMode]);
+
+  // Cleanup on unmount
+  useEffect(() => { return () => { stopStream(); }; }, [stopStream]);
 
   return {
-    isConnected,
-    isRecording,
-    sessionState,
-    sourceCaption,
-    targetCaption,
-    logs,
-    startStream,
-    stopStream,
-    setSourceCaption,
-    setTargetCaption,
-    addLog,
+    isConnected, isRecording, sessionState, sourceCaption, targetCaption,
+    logs, isMuted, toggleMute, sendText, startStream, stopStream,
+    setSourceCaption, setTargetCaption, addLog, micAnalyserRef, aiAnalyserRef,
+    detectedGender, voiceMode, setVoiceMode, ttsVoice, setTtsVoice,
   };
 }
