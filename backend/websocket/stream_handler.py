@@ -5,17 +5,28 @@ from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 from backend.config.settings import settings
+from backend.websocket.connection_manager import manager
 
 logger = logging.getLogger("backend")
 
 
-async def handle_translation_stream(client_ws: WebSocket, source: str = "Sinhala", target: str = "Tamil"):
+async def handle_translation_stream(
+    client_ws: WebSocket,
+    source: str,
+    target: str,
+    voice: str,
+    group_id: int = None
+):
+    """
+    Manages the bidirectional audio stream between the client and Google Gemini Live API.
+    Translates input audio and broadcasts it to the specific group chat room.
+    """
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not configured in settings.")
-        await client_ws.send_json({
+        await manager.send_json_message({
             "type": "status",
             "payload": {"message": "Error: GEMINI_API_KEY is not configured on the server."}
-        })
+        }, client_ws)
         await client_ws.close(code=1008, reason="API key missing")
         return
 

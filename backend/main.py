@@ -41,24 +41,26 @@ async def health_check():
     }
 
 
-@app.websocket("/ws/translate")
-async def websocket_translator_endpoint(
+@app.websocket("/ws/group/{group_id}/translate")
+async def websocket_group_translator_endpoint(
     websocket: WebSocket,
+    group_id: int,
     source: str = "Sinhala",
     target: str = "Tamil",
     voice: str = "Aoede"
 ):
-    await manager.connect(websocket)
-    logger.info(f"Client connected: {websocket.client} (translating {source} -> {target} with initial voice: {voice})")
+    await manager.connect(websocket, group_id)
+    logger.info(f"Client connected to group {group_id}: {websocket.client} (translating {source} -> {target})")
 
     try:
-        await handle_translation_stream(websocket, source, target, voice)
+        # Pass group_id to the stream handler so it knows where to broadcast translations
+        await handle_translation_stream(websocket, source, target, voice, group_id=group_id)
 
     except WebSocketDisconnect:
-        logger.info(f"Client disconnected: {websocket.client}")
+        logger.info(f"Client disconnected from group {group_id}: {websocket.client}")
 
     except Exception as e:
-        logger.error(f"WebSocket gateway error: {str(e)}")
+        logger.error(f"WebSocket group gateway error: {str(e)}")
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except RuntimeError:
