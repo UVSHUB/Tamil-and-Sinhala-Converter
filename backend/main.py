@@ -2,9 +2,16 @@ import logging
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from fastapi import Depends
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
+from backend.database import engine, get_db, Base
+from backend import models
+
+# Initialize the SQLite database tables
+models.Base.metadata.create_all(bind=engine)
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("backend")
