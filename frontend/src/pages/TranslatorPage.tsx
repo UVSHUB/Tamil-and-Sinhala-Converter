@@ -94,32 +94,49 @@ export default function TranslatorPage() {
 
     let animationFrameId: number;
 
-    const resizeCanvas = () => {
+    // Resize canvas pixel buffer to match CSS size × DPR — called once per
+    // resize event so ctx.scale() is never stacked across effect re-runs.
+    const syncCanvasSize = () => {
+      const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * window.devicePixelRatio;
-      canvas.height = rect.height * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      const w = Math.round(rect.width * dpr);
+      const h = Math.round(rect.height * dpr);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
     };
-    resizeCanvas();
+    syncCanvasSize();
+
+    const resizeObserver = new ResizeObserver(syncCanvasSize);
+    resizeObserver.observe(canvas);
 
     const barCount = 64;
-    // Using 128 bins ensures we have enough data to downsample smoothly
+    // 128 bins gives enough resolution to downsample smoothly across barCount
     const dataArray = new Uint8Array(128);
     let phase = 0;
 
     const draw = () => {
       animationFrameId = requestAnimationFrame(draw);
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
 
-      // Fully transparent clear so it floats perfectly on the slate-950 background
+      const dpr = window.devicePixelRatio || 1;
+      // Draw in physical pixels — no ctx.scale() needed
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
+
+      // Scale the context to physical pixels for crisp rendering
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Transparent clear so it floats on the slate-950 background
       ctx.clearRect(0, 0, width, height);
 
-      let activeAnalyser = null;
+      // Pick the right analyser based on current session state
+      let activeAnalyser: AnalyserNode | null = null;
       if (sessionState === 'AI_LISTENING') activeAnalyser = micAnalyserRef.current;
       else if (sessionState === 'AI_SPEAKING') activeAnalyser = aiAnalyserRef.current;
 
       if (activeAnalyser) {
+        // Real-time frequency amplitude from the microphone / AI audio
         activeAnalyser.getByteFrequencyData(dataArray);
       } else {
         dataArray.fill(0);
@@ -136,23 +153,21 @@ export default function TranslatorPage() {
       ctx.lineWidth = barWidth;
 
       for (let i = 0; i < barCount; i++) {
-        // Voice frequencies are concentrated in the lower-mid range.
-        // We map index i to focus on active voice frequency bins.
-        const binIndex = Math.floor((i / barCount) * 70); 
-        let val = dataArray[binIndex] || 0;
+        // Map bar index into the lower-mid voice frequency bins (0–70 of 128)
+        const binIndex = Math.floor((i / barCount) * 70);
+        const val = dataArray[binIndex] || 0;
 
-        let barHeight = 0;
+        let barHeight: number;
 
         if (sessionState === 'IDLE' || sessionState === 'ERROR') {
-          // Subtle idle ambient ripple
+          // Subtle ambient idle ripple
           barHeight = 4 + Math.sin(phase + i * 0.25) * 3;
         } else if (sessionState === 'AI_THINKING') {
-          // Smooth loading wave pattern
+          // Smooth loading wave
           barHeight = 6 + Math.sin(phase * 1.5 + i * 0.25) * 12;
         } else {
-          // Active speaking/listening: base height plus reactive amplitude
+          // AI_LISTENING / AI_SPEAKING: height driven by live frequency data
           const normalized = val / 255;
-          // Apply a slight noise floor to keep silent bars standing at 4px
           barHeight = 4 + normalized * maxBarHeight;
         }
 
@@ -160,9 +175,9 @@ export default function TranslatorPage() {
         const yStart = centerY - barHeight / 2;
         const yEnd = centerY + barHeight / 2;
 
-        // Pure white bars with custom opacity gradient (brighter center, softer edges)
+        // Opacity envelope: brighter in the centre, softer at the edges
         const edgeFactor = Math.sin((i / barCount) * Math.PI);
-        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.3 + edgeFactor * 0.7).toFixed(2)})`;
+        ctx.strokeStyle = `rgba(255,255,255,${(0.3 + edgeFactor * 0.7).toFixed(2)})`;
 
         ctx.beginPath();
         ctx.moveTo(x, yStart);
@@ -174,7 +189,11 @@ export default function TranslatorPage() {
     };
 
     draw();
-    return () => cancelAnimationFrame(animationFrameId);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
+    };
   }, [sessionState, isConnected, micAnalyserRef, aiAnalyserRef]);
 
   // ── Archive transcripts on turn complete ───────────────────────────────
