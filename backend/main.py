@@ -9,6 +9,8 @@ from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
 from backend.database import engine, get_db, Base
 from backend import models
+from backend.websocket.twilio_handler import handle_twilio_stream
+from backend.api.v1.twilio import router as twilio_router
 
 # Initialize the SQLite database tables
 models.Base.metadata.create_all(bind=engine)
@@ -30,6 +32,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(twilio_router, prefix="/api/v1/twilio", tags=["Twilio"])
 
 
 @app.get("/api/v1/health", tags=["Health"])
@@ -68,6 +72,26 @@ async def websocket_group_translator_endpoint(
 
     finally:
         manager.disconnect(websocket)
+
+
+@app.websocket("/ws/twilio")
+async def websocket_twilio_endpoint(
+    websocket: WebSocket,
+    source: str = "Sinhala",
+    target: str = "Tamil"
+):
+    await websocket.accept()
+    logger.info(f"Twilio call stream connected: {websocket.client} (translating {source} <-> {target})")
+
+    try:
+        await handle_twilio_stream(websocket, source, target)
+
+    except Exception as e:
+        logger.error(f"Twilio WebSocket gateway error: {str(e)}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except RuntimeError:
+            pass
 
 
 if __name__ == "__main__":
