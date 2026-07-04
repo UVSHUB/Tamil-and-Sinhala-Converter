@@ -85,6 +85,20 @@ export default function TranslatorPage() {
   useEffect(() => { scrollToBottom(); }, [history, sourceCaption, targetCaption]);
   useEffect(() => { localStorage.setItem('sintam_history', JSON.stringify(history)); }, [history]);
 
+  // ── Spacebar shortcut: toggle recording when focus is not in a text field ─
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const tag = (e.target as HTMLElement).tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      e.preventDefault(); // prevent page scroll
+      handleStartSession();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionState]);
+
   // ── Canvas: Mirrored frequency bar visualizer ─────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -241,6 +255,10 @@ export default function TranslatorPage() {
     addLog('Chat cleared.');
   };
 
+  const handleDeleteMessage = (id: string) => {
+    setHistory(prev => prev.filter(m => m.id !== id));
+  };
+
   const handleCopyText = (text: string, id: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedId(id);
@@ -321,6 +339,7 @@ export default function TranslatorPage() {
               <select
                 value={sourceLang}
                 onChange={e => setSourceLang(e.target.value)}
+                aria-label="Source language — translate from"
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all appearance-none cursor-pointer"
               >
                 {LANGUAGES.map(l => <option key={l.code} value={l.code} className="bg-slate-800">{l.name}</option>)}
@@ -333,7 +352,7 @@ export default function TranslatorPage() {
 
           {/* Swap button */}
           <div className="flex flex-col items-center gap-0.5 pt-4">
-            <button onClick={handleSwapLanguages} className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all hover:scale-110 active:scale-95 shadow-md">
+            <button onClick={handleSwapLanguages} aria-label="Swap source and target languages" className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all hover:scale-110 active:scale-95 shadow-md">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
@@ -345,6 +364,7 @@ export default function TranslatorPage() {
               <select
                 value={targetLang}
                 onChange={e => setTargetLang(e.target.value)}
+                aria-label="Target language — translate to"
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all appearance-none cursor-pointer"
               >
                 {LANGUAGES.map(l => <option key={l.code} value={l.code} className="bg-slate-800">{l.name}</option>)}
@@ -378,7 +398,11 @@ export default function TranslatorPage() {
 
           {/* Top: status badge */}
           <div className="flex flex-col items-center gap-2 w-full z-10">
-            <div className={`flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border transition-all duration-300 ${
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className={`flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border transition-all duration-300 ${
               sessionState === 'AI_LISTENING' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
               sessionState === 'AI_THINKING' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
               sessionState === 'AI_SPEAKING' ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' :
@@ -435,7 +459,9 @@ export default function TranslatorPage() {
 
               <button
                 onClick={handleStartSession}
-                className={`h-28 w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-2xl relative z-10 hover:scale-105 active:scale-95 ${
+                aria-label={sessionState === 'IDLE' || sessionState === 'ERROR' ? 'Start recording (Space)' : 'Stop recording (Space)'}
+                aria-pressed={sessionState !== 'IDLE' && sessionState !== 'ERROR'}
+                className={`h-28 w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-2xl relative z-10 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                   sessionState === 'IDLE'
                     ? 'bg-gradient-to-br from-indigo-600 to-violet-700 shadow-indigo-500/30 hover:shadow-indigo-500/50'
                     : sessionState === 'ERROR'
@@ -464,12 +490,13 @@ export default function TranslatorPage() {
             <button
               onClick={handleClearChat}
               disabled={history.length === 0}
+              aria-label="Clear all translation history"
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${
                 history.length === 0
                   ? 'border-slate-800 text-slate-700 cursor-not-allowed'
                   : 'border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/40 hover:bg-rose-500/10'
               }`}
-              title="Clear Chat"
+              title="Clear all translation history"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Clear
@@ -523,7 +550,7 @@ export default function TranslatorPage() {
                 </div>
               )}
 
-              {/* Message history */}
+              {/* Message history — most recent entries at bottom (chat order) */}
               {history.map(msg => (
                 <div
                   key={msg.id}
@@ -538,14 +565,20 @@ export default function TranslatorPage() {
                   </div>
                   <span className="text-[9px] text-slate-600 mt-1 font-bold uppercase tracking-wider px-1 flex items-center gap-1.5">
                     {msg.sender === 'user' ? `You (${msg.language})` : `AI (${msg.language})`}
-                    <button onClick={() => handleCopyText(msg.text, msg.id)} className="text-slate-600 hover:text-slate-300 transition-colors p-0.5">
+                    <span className="text-slate-700 font-normal normal-case tracking-normal">
+                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button onClick={() => handleCopyText(msg.text, msg.id)} className="text-slate-600 hover:text-slate-300 transition-colors p-0.5" title="Copy">
                       {copiedId === msg.id ? <Check className="h-2.5 w-2.5 text-emerald-500" /> : <Copy className="h-2.5 w-2.5" />}
+                    </button>
+                    <button onClick={() => handleDeleteMessage(msg.id)} className="text-slate-700 hover:text-rose-400 transition-colors p-0.5" title="Delete this entry">
+                      <Trash2 className="h-2.5 w-2.5" />
                     </button>
                   </span>
                 </div>
               ))}
 
-              {/* Live captions */}
+              {/* Live captions — sourceCaption with copy button */}
               {sourceCaption && (
                 <div className="flex flex-col max-w-[88%] self-end items-end">
                   <div className="px-4 py-2.5 rounded-2xl rounded-tr-none bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-sm italic shadow-sm animate-pulse">
@@ -554,10 +587,18 @@ export default function TranslatorPage() {
                   <span className="text-[9px] text-emerald-600 mt-1 font-extrabold flex items-center gap-1 uppercase tracking-wider">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
                     Speaking {sourceLang}...
+                    <button
+                      onClick={() => handleCopyText(sourceCaption, 'live-source')}
+                      className="text-emerald-700 hover:text-emerald-400 transition-colors p-0.5 ml-0.5"
+                      title="Copy source text"
+                    >
+                      {copiedId === 'live-source' ? <Check className="h-2.5 w-2.5 text-emerald-400" /> : <Copy className="h-2.5 w-2.5" />}
+                    </button>
                   </span>
                 </div>
               )}
 
+              {/* Live captions — targetCaption with copy button */}
               {targetCaption && (
                 <div className="flex flex-col max-w-[88%] self-start items-start">
                   <div className="px-4 py-2.5 rounded-2xl rounded-tl-none bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 text-sm shadow-sm">
@@ -566,6 +607,13 @@ export default function TranslatorPage() {
                   <span className="text-[9px] text-indigo-500 mt-1 font-extrabold flex items-center gap-1 uppercase tracking-wider">
                     <Volume2 className="h-2.5 w-2.5 animate-bounce" />
                     Translating to {targetLang}...
+                    <button
+                      onClick={() => handleCopyText(targetCaption, 'live-target')}
+                      className="text-indigo-700 hover:text-indigo-400 transition-colors p-0.5 ml-0.5"
+                      title="Copy translation"
+                    >
+                      {copiedId === 'live-target' ? <Check className="h-2.5 w-2.5 text-indigo-400" /> : <Copy className="h-2.5 w-2.5" />}
+                    </button>
                   </span>
                 </div>
               )}
