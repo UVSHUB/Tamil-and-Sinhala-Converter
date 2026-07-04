@@ -18,37 +18,38 @@ def decode_ulaw_sample(u_val: int) -> int:
     
     return -sample + BIAS if sign else sample - BIAS
 
+# Exponent lookup table for G.711 mu-law encoding
+EXP_LUT = [0,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3,
+           4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+           5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+           5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+           6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+           6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+           6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+           6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+           7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7]
+
 def encode_ulaw_sample(pcm_val: int) -> int:
     """Converts a single 16-bit signed PCM sample to an 8-bit mu-law byte."""
-    BIAS = 0x84
-    CLIP = 32635
-    
-    # Clip value to valid range
-    if pcm_val < -CLIP:
-        pcm_val = -CLIP
-    elif pcm_val > CLIP:
-        pcm_val = CLIP
-        
     sign = 0x80 if pcm_val < 0 else 0
     if sign:
         pcm_val = -pcm_val
         
-    pcm_val += BIAS
-    
-    # Determine exponent
-    exponent = 7
-    temp = pcm_val << 1
-    if temp >= 0x4000: exponent = 6
-    elif temp >= 0x2000: exponent = 5
-    elif temp >= 0x1000: exponent = 4
-    elif temp >= 0x0800: exponent = 3
-    elif temp >= 0x0400: exponent = 2
-    elif temp >= 0x0200: exponent = 1
-    elif temp >= 0x0100: exponent = 0
-    
+    if pcm_val > 32635:
+        pcm_val = 32635
+        
+    pcm_val += 0x84
+    exponent = EXP_LUT[(pcm_val >> 7) & 0xFF]
     mantissa = (pcm_val >> (exponent + 3)) & 0x0F
-    ulaw = ~(sign | (exponent << 4) | mantissa)
-    return ulaw & 0xFF
+    ulawbyte = ~(sign | (exponent << 4) | mantissa)
+    return ulawbyte & 0xFF
 
 # Precompute lookup tables at startup for high-performance conversion
 ULAW_TO_PCM = [decode_ulaw_sample(i) for i in range(256)]
