@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
@@ -19,7 +18,11 @@ async def handle_translation_stream(
 ):
     """
     Manages the bidirectional audio stream between the client and Google Gemini Live API.
-    Translates input audio and broadcasts it to the specific group chat room.
+    Uses the gemini-3.5-live-translate-preview model for real-time speech-to-speech translation.
+
+    Per official docs: this model is AUDIO-only input, supports ONLY translation_config,
+    no system_instruction, no speech_config, no tools. It uses continuous stream processing
+    (not turn-based), so realtime_input_config with VAD is not applicable.
     """
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not configured in settings.")
@@ -30,6 +33,7 @@ async def handle_translation_stream(
         await client_ws.close(code=1008, reason="API key missing")
         return
 
+    # Build client — the Python SDK uses v1beta by default which supports the translate model
     ai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
     language_map = {
@@ -44,60 +48,49 @@ async def handle_translation_stream(
         "German": "de"
     }
     target_code = language_map.get(target, "ta")
+    source_code = language_map.get(source, "si")
 
+    # Minimal config as per official Gemini Live Translate docs.
+    # The translate model does NOT support: speech_config, system_instruction,
+    # realtime_input_config, or tools. Only use the fields shown below.
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        translation_config=types.TranslationConfig(
-            target_language_code=target_code,
-            echo_target_language=True
-        ),
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                    voice_name=voice
-                )
-            )
-        ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
-        realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(
-                disabled=False,
-                silence_duration_ms=800,
-            )
-        )
+        translation_config=types.TranslationConfig(
+            target_language_code=target_code,
+            echo_target_language=False,  # Stay silent if speaker is already speaking the target language
+        ),
     )
 
-    logger.info(f"Connecting to Gemini Live API using model: {settings.GEMINI_MODEL}...")
+    logger.info(f"Connecting to Gemini Live Translate API: {source}({source_code}) → {target}({target_code})")
 
     try:
         async with ai_client.aio.live.connect(model=settings.GEMINI_MODEL, config=config) as session:
-            logger.info("Successfully connected to Gemini Live API session.")
+            logger.info("Successfully connected to Gemini Live Translate session.")
             await client_ws.send_json({
                 "type": "status",
-                "payload": {"message": "Connected to Gemini Live API. Start speaking now..."}
+                "payload": {"message": f"Connected. Translating {source} → {target}. Start speaking now..."}
             })
 
             async def client_to_gemini():
+                """Forward raw PCM audio bytes from browser WebSocket to Gemini."""
                 try:
                     while True:
                         message = await client_ws.receive()
                         if "bytes" in message:
                             data = message["bytes"]
+                            # Send raw PCM audio — the translate model ONLY accepts audio input
                             await session.send_realtime_input(
-                                media=types.Blob(
+                                audio=types.Blob(
                                     data=data,
                                     mime_type="audio/pcm;rate=16000"
                                 )
                             )
                         elif "text" in message:
-                            text_data = message["text"]
-                            try:
-                                cmd = json.loads(text_data)
-                                if cmd.get("type") == "update_config":
-                                    pass
-                            except json.JSONDecodeError:
-                                await session.send_realtime_input(text=text_data)
+                            # Text input is NOT supported by the translate model.
+                            # Silently ignore any text messages from the client.
+                            logger.debug("Ignoring text message (translate model only accepts audio)")
                 except (WebSocketDisconnect, RuntimeError):
                     logger.info("Client WebSocket disconnected inside client_to_gemini.")
                 except asyncio.CancelledError:
@@ -107,37 +100,45 @@ async def handle_translation_stream(
                     raise
 
             async def gemini_to_client():
+                """Forward Gemini responses back to the browser WebSocket."""
                 try:
                     async for response in session.receive():
                         if response.server_content:
-                            # Input (user speech) transcription
-                            if response.server_content.input_transcription:
-                                text = response.server_content.input_transcription.text
-                                if text:
-                                    await client_ws.send_json({
-                                        "type": "transcription",
-                                        "payload": {"speaker": "user", "text": text}
-                                    })
+                            sc = response.server_content
 
-                            # Output (translated) audio + transcription
-                            if response.server_content.output_transcription:
-                                text = response.server_content.output_transcription.text
-                                if text:
-                                    await client_ws.send_json({
-                                        "type": "translation",
-                                        "payload": {"speaker": "ai", "text": text}
-                                    })
+                            # Input transcription — user's spoken words in source language
+                            if sc.input_transcription and sc.input_transcription.text:
+                                await client_ws.send_json({
+                                    "type": "transcription",
+                                    "payload": {
+                                        "speaker": "user",
+                                        "text": sc.input_transcription.text
+                                    }
+                                })
 
-                            if response.server_content.model_turn:
-                                for part in response.server_content.model_turn.parts:
-                                    if part.inline_data:
+                            # Output transcription — translated text in target language
+                            if sc.output_transcription and sc.output_transcription.text:
+                                await client_ws.send_json({
+                                    "type": "translation",
+                                    "payload": {
+                                        "speaker": "ai",
+                                        "text": sc.output_transcription.text
+                                    }
+                                })
+
+                            # Translated audio chunks — raw PCM at 24kHz
+                            if sc.model_turn:
+                                for part in sc.model_turn.parts:
+                                    if part.inline_data and part.inline_data.data:
                                         await client_ws.send_bytes(part.inline_data.data)
 
-                            if response.server_content.turn_complete:
+                            # Turn complete signal
+                            if sc.turn_complete:
                                 await client_ws.send_json({
                                     "type": "turn_complete",
                                     "payload": {}
                                 })
+
                 except asyncio.CancelledError:
                     pass
                 except Exception as ex:
