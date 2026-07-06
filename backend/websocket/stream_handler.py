@@ -47,6 +47,10 @@ async def handle_translation_stream(
 
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
+        translation_config=types.TranslationConfig(
+            target_language_code=target_code,
+            echo_target_language=True
+        ),
         system_instruction=types.Content(parts=[types.Part.from_text(text=f"You are a professional translator. Translate everything the user says from {source} to {target}. Speak the translation directly in a natural, polite tone. Do not add any conversational filler. Just output the direct translation.")]),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
