@@ -112,9 +112,14 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
   // Play synthesized 24kHz PCM audio chunk from Gemini
   const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
     if (isMuted) return;
-    if (!audioContextRef.current) return;
-
     const audioCtx = audioContextRef.current;
+    if (!audioCtx) return;
+
+    // Resume AudioContext if it was suspended by browser autoplay policy
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+
     const int16Array = new Int16Array(arrayBuffer);
     if (int16Array.length === 0) return;
 
@@ -133,11 +138,12 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
       aiAnalyserRef.current = analyser;
+      aiAnalyserRef.current.connect(audioCtx.destination);
     }
     source.connect(aiAnalyserRef.current);
-    aiAnalyserRef.current.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
+    // If we're behind (gap in audio), snap to now to avoid compounding delay
     if (nextPlaybackTimeRef.current < now) nextPlaybackTimeRef.current = now;
     source.start(nextPlaybackTimeRef.current);
     nextPlaybackTimeRef.current += audioBuffer.duration;
@@ -317,10 +323,18 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
 
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
-      // Connect source -> analyser (for visualizer) AND source -> worklet (for sending)
-      // These are PARALLEL connections, not serial, to avoid analyser buffering artifacts
+      // Parallel: mic → analyser (visualizer) and mic → worklet (data pipeline)
       source.connect(micAnalyser);
       source.connect(workletNode);
+
+      // CRITICAL: workletNode MUST be connected to destination (even silently).
+      // If not connected, browsers throttle or stop calling process() entirely,
+      // causing irregular audio delivery and latency spikes.
+      const silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0;
+      workletNode.connect(silentGain);
+      silentGain.connect(audioCtx.destination);
+
       addLog('Audio pipeline ready.');
 
       const currentVoiceMode = voiceModeRef.current;
