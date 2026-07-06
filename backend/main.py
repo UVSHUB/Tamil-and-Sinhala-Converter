@@ -2,18 +2,9 @@ import logging
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from fastapi import Depends
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
-from backend.database import engine, get_db, Base
-from backend import models
-from backend.websocket.twilio_handler import handle_twilio_stream
-from backend.api.v1.twilio import router as twilio_router
-
-# Initialize the SQLite database tables
-models.Base.metadata.create_all(bind=engine)
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("backend")
@@ -33,8 +24,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(twilio_router, prefix="/api/v1/twilio", tags=["Twilio"])
-
 
 @app.get("/api/v1/health", tags=["Health"])
 async def health_check():
@@ -45,35 +34,6 @@ async def health_check():
     }
 
 
-@app.websocket("/ws/group/{group_id}/translate")
-async def websocket_group_translator_endpoint(
-    websocket: WebSocket,
-    group_id: int,
-    source: str = "Sinhala",
-    target: str = "Tamil",
-    voice: str = "Aoede"
-):
-    await manager.connect(websocket, group_id)
-    logger.info(f"Client connected to group {group_id}: {websocket.client} (translating {source} -> {target})")
-
-    try:
-        # Pass group_id to the stream handler so it knows where to broadcast translations
-        await handle_translation_stream(websocket, source, target, voice, group_id=group_id)
-
-    except WebSocketDisconnect:
-        logger.info(f"Client disconnected from group {group_id}: {websocket.client}")
-
-    except Exception as e:
-        logger.error(f"WebSocket group gateway error: {str(e)}")
-        try:
-            await websocket.close(code=1011, reason="Internal server error")
-        except RuntimeError:
-            pass
-
-    finally:
-        manager.disconnect(websocket)
-
-
 @app.websocket("/ws/translate")
 async def websocket_translator_endpoint(
     websocket: WebSocket,
@@ -81,11 +41,11 @@ async def websocket_translator_endpoint(
     target: str = "Tamil",
     voice: str = "Aoede"
 ):
-    await manager.connect(websocket, 0)
+    await manager.connect(websocket)
     logger.info(f"Client connected: {websocket.client} (translating {source} -> {target} with initial voice: {voice})")
 
     try:
-        await handle_translation_stream(websocket, source, target, voice, group_id=0)
+        await handle_translation_stream(websocket, source, target, voice)
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected: {websocket.client}")
@@ -99,26 +59,6 @@ async def websocket_translator_endpoint(
 
     finally:
         manager.disconnect(websocket)
-
-
-@app.websocket("/ws/twilio")
-async def websocket_twilio_endpoint(
-    websocket: WebSocket,
-    source: str = "Sinhala",
-    target: str = "Tamil"
-):
-    await websocket.accept()
-    logger.info(f"Twilio call stream connected: {websocket.client} (translating {source} <-> {target})")
-
-    try:
-        await handle_twilio_stream(websocket, source, target)
-
-    except Exception as e:
-        logger.error(f"Twilio WebSocket gateway error: {str(e)}")
-        try:
-            await websocket.close(code=1011, reason="Internal server error")
-        except RuntimeError:
-            pass
 
 
 if __name__ == "__main__":

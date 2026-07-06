@@ -112,14 +112,9 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
   // Play synthesized 24kHz PCM audio chunk from Gemini
   const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
     if (isMuted) return;
+    if (!audioContextRef.current) return;
+
     const audioCtx = audioContextRef.current;
-    if (!audioCtx) return;
-
-    // Resume AudioContext if it was suspended by browser autoplay policy
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
-
     const int16Array = new Int16Array(arrayBuffer);
     if (int16Array.length === 0) return;
 
@@ -138,12 +133,11 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
       aiAnalyserRef.current = analyser;
-      aiAnalyserRef.current.connect(audioCtx.destination);
     }
     source.connect(aiAnalyserRef.current);
+    aiAnalyserRef.current.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
-    // If we're behind (gap in audio), snap to now to avoid compounding delay
     if (nextPlaybackTimeRef.current < now) nextPlaybackTimeRef.current = now;
     source.start(nextPlaybackTimeRef.current);
     nextPlaybackTimeRef.current += audioBuffer.duration;
@@ -215,17 +209,12 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
           if (response.type === 'status') {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
-            // Overwrite with the latest cumulative transcription from Gemini
-            setSourceCaption(response.payload.text || '');
+            setSourceCaption(response.payload.text);
           } else if (response.type === 'translation') {
-            // Overwrite with the latest cumulative translation from Gemini
-            setTargetCaption(response.payload.text || '');
+            setTargetCaption(response.payload.text);
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
-            // Reset captions for the next utterance
-            setSourceCaption('');
-            setTargetCaption('');
             setSessionState('AI_LISTENING');
           }
         } catch {
@@ -282,20 +271,7 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          // IMPORTANT: Disable browser WebRTC processing for non-English languages.
-          // Chrome/Safari noise suppression is trained on English speech — it treats
-          // Sinhala retroflex consonants (ට,ඩ,ණ) and vowel clusters as "noise" and
-          // suppresses them, corrupting the signal before it reaches Gemini.
-          // Gemini Live handles noise robustly on its own.
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: true,   // Keep AGC for volume normalization
-          // Hint to get 16kHz directly — avoids resampling overhead.
-          // Browser may ignore this, but it helps when supported.
-          sampleRate: 16000,
-        },
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       mediaStreamRef.current = stream;
       addLog('Microphone access granted.');
@@ -319,13 +295,7 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       workletNode.port.onmessage = (event: MessageEvent) => {
         const pcmBuffer = event.data;
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          // Prevent feedback loops: do not send microphone data to the server
-          // while the speakers are still playing the translated audio.
-          const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
-          const isAiPlaying = nextPlaybackTimeRef.current > now;
-          if (!isAiPlaying) {
-            socketRef.current.send(pcmBuffer);
-          }
+          socketRef.current.send(pcmBuffer);
         } else if (isWsConnectingRef.current) {
           // Cap the queue — only keep the most recent ~250ms of audio (30 packets × ~8ms each)
           // Older audio is stale and flooding Gemini with it causes 1011 errors
@@ -342,18 +312,8 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
 
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
-      // Parallel: mic → analyser (visualizer) and mic → worklet (data pipeline)
       source.connect(micAnalyser);
-      source.connect(workletNode);
-
-      // CRITICAL: workletNode MUST be connected to destination (even silently).
-      // If not connected, browsers throttle or stop calling process() entirely,
-      // causing irregular audio delivery and latency spikes.
-      const silentGain = audioCtx.createGain();
-      silentGain.gain.value = 0;
-      workletNode.connect(silentGain);
-      silentGain.connect(audioCtx.destination);
-
+      micAnalyser.connect(workletNode);
       addLog('Audio pipeline ready.');
 
       const currentVoiceMode = voiceModeRef.current;

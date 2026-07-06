@@ -12,9 +12,6 @@ class Settings(BaseSettings):
     
     # CORS Configuration
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:80"
-    
-    # Optional target number to forward phone calls to for bridged translation
-    TWILIO_FORWARD_NUMBER: str = ""
 
     class Config:
         # Load env parameters from root directory

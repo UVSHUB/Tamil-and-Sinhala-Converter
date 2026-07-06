@@ -85,20 +85,6 @@ export default function TranslatorPage() {
   useEffect(() => { scrollToBottom(); }, [history, sourceCaption, targetCaption]);
   useEffect(() => { localStorage.setItem('sintam_history', JSON.stringify(history)); }, [history]);
 
-  // ── Spacebar shortcut: toggle recording when focus is not in a text field ─
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== 'Space') return;
-      const tag = (e.target as HTMLElement).tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      e.preventDefault(); // prevent page scroll
-      handleStartSession();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionState]);
-
   // ── Canvas: Mirrored frequency bar visualizer ─────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -108,49 +94,32 @@ export default function TranslatorPage() {
 
     let animationFrameId: number;
 
-    // Resize canvas pixel buffer to match CSS size × DPR — called once per
-    // resize event so ctx.scale() is never stacked across effect re-runs.
-    const syncCanvasSize = () => {
-      const dpr = window.devicePixelRatio || 1;
+    const resizeCanvas = () => {
       const rect = canvas.getBoundingClientRect();
-      const w = Math.round(rect.width * dpr);
-      const h = Math.round(rect.height * dpr);
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     };
-    syncCanvasSize();
-
-    const resizeObserver = new ResizeObserver(syncCanvasSize);
-    resizeObserver.observe(canvas);
+    resizeCanvas();
 
     const barCount = 64;
-    // 128 bins gives enough resolution to downsample smoothly across barCount
+    // Using 128 bins ensures we have enough data to downsample smoothly
     const dataArray = new Uint8Array(128);
     let phase = 0;
 
     const draw = () => {
       animationFrameId = requestAnimationFrame(draw);
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
 
-      const dpr = window.devicePixelRatio || 1;
-      // Draw in physical pixels — no ctx.scale() needed
-      const width = canvas.width / dpr;
-      const height = canvas.height / dpr;
-
-      // Scale the context to physical pixels for crisp rendering
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      // Transparent clear so it floats on the slate-950 background
+      // Fully transparent clear so it floats perfectly on the slate-950 background
       ctx.clearRect(0, 0, width, height);
 
-      // Pick the right analyser based on current session state
-      let activeAnalyser: AnalyserNode | null = null;
+      let activeAnalyser = null;
       if (sessionState === 'AI_LISTENING') activeAnalyser = micAnalyserRef.current;
       else if (sessionState === 'AI_SPEAKING') activeAnalyser = aiAnalyserRef.current;
 
       if (activeAnalyser) {
-        // Real-time frequency amplitude from the microphone / AI audio
         activeAnalyser.getByteFrequencyData(dataArray);
       } else {
         dataArray.fill(0);
@@ -167,21 +136,23 @@ export default function TranslatorPage() {
       ctx.lineWidth = barWidth;
 
       for (let i = 0; i < barCount; i++) {
-        // Map bar index into the lower-mid voice frequency bins (0–70 of 128)
-        const binIndex = Math.floor((i / barCount) * 70);
-        const val = dataArray[binIndex] || 0;
+        // Voice frequencies are concentrated in the lower-mid range.
+        // We map index i to focus on active voice frequency bins.
+        const binIndex = Math.floor((i / barCount) * 70); 
+        let val = dataArray[binIndex] || 0;
 
-        let barHeight: number;
+        let barHeight = 0;
 
         if (sessionState === 'IDLE' || sessionState === 'ERROR') {
-          // Subtle ambient idle ripple
+          // Subtle idle ambient ripple
           barHeight = 4 + Math.sin(phase + i * 0.25) * 3;
         } else if (sessionState === 'AI_THINKING') {
-          // Smooth loading wave
+          // Smooth loading wave pattern
           barHeight = 6 + Math.sin(phase * 1.5 + i * 0.25) * 12;
         } else {
-          // AI_LISTENING / AI_SPEAKING: height driven by live frequency data
+          // Active speaking/listening: base height plus reactive amplitude
           const normalized = val / 255;
+          // Apply a slight noise floor to keep silent bars standing at 4px
           barHeight = 4 + normalized * maxBarHeight;
         }
 
@@ -189,9 +160,9 @@ export default function TranslatorPage() {
         const yStart = centerY - barHeight / 2;
         const yEnd = centerY + barHeight / 2;
 
-        // Opacity envelope: brighter in the centre, softer at the edges
+        // Pure white bars with custom opacity gradient (brighter center, softer edges)
         const edgeFactor = Math.sin((i / barCount) * Math.PI);
-        ctx.strokeStyle = `rgba(255,255,255,${(0.3 + edgeFactor * 0.7).toFixed(2)})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.3 + edgeFactor * 0.7).toFixed(2)})`;
 
         ctx.beginPath();
         ctx.moveTo(x, yStart);
@@ -203,11 +174,7 @@ export default function TranslatorPage() {
     };
 
     draw();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-      resizeObserver.disconnect();
-    };
+    return () => cancelAnimationFrame(animationFrameId);
   }, [sessionState, isConnected, micAnalyserRef, aiAnalyserRef]);
 
   // ── Archive transcripts on turn complete ───────────────────────────────
@@ -253,10 +220,6 @@ export default function TranslatorPage() {
     setTargetCaption('');
     localStorage.removeItem('sintam_history');
     addLog('Chat cleared.');
-  };
-
-  const handleDeleteMessage = (id: string) => {
-    setHistory(prev => prev.filter(m => m.id !== id));
   };
 
   const handleCopyText = (text: string, id: string) => {
@@ -339,7 +302,6 @@ export default function TranslatorPage() {
               <select
                 value={sourceLang}
                 onChange={e => setSourceLang(e.target.value)}
-                aria-label="Source language — translate from"
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all appearance-none cursor-pointer"
               >
                 {LANGUAGES.map(l => <option key={l.code} value={l.code} className="bg-slate-800">{l.name}</option>)}
@@ -352,7 +314,7 @@ export default function TranslatorPage() {
 
           {/* Swap button */}
           <div className="flex flex-col items-center gap-0.5 pt-4">
-            <button onClick={handleSwapLanguages} aria-label="Swap source and target languages" className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all hover:scale-110 active:scale-95 shadow-md">
+            <button onClick={handleSwapLanguages} className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all hover:scale-110 active:scale-95 shadow-md">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
@@ -364,7 +326,6 @@ export default function TranslatorPage() {
               <select
                 value={targetLang}
                 onChange={e => setTargetLang(e.target.value)}
-                aria-label="Target language — translate to"
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all appearance-none cursor-pointer"
               >
                 {LANGUAGES.map(l => <option key={l.code} value={l.code} className="bg-slate-800">{l.name}</option>)}
@@ -398,11 +359,7 @@ export default function TranslatorPage() {
 
           {/* Top: status badge */}
           <div className="flex flex-col items-center gap-2 w-full z-10">
-            <div
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-              className={`flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border transition-all duration-300 ${
+            <div className={`flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border transition-all duration-300 ${
               sessionState === 'AI_LISTENING' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
               sessionState === 'AI_THINKING' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
               sessionState === 'AI_SPEAKING' ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' :
@@ -459,9 +416,7 @@ export default function TranslatorPage() {
 
               <button
                 onClick={handleStartSession}
-                aria-label={sessionState === 'IDLE' || sessionState === 'ERROR' ? 'Start recording (Space)' : 'Stop recording (Space)'}
-                aria-pressed={sessionState !== 'IDLE' && sessionState !== 'ERROR'}
-                className={`h-28 w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-2xl relative z-10 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                className={`h-28 w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-2xl relative z-10 hover:scale-105 active:scale-95 ${
                   sessionState === 'IDLE'
                     ? 'bg-gradient-to-br from-indigo-600 to-violet-700 shadow-indigo-500/30 hover:shadow-indigo-500/50'
                     : sessionState === 'ERROR'
@@ -490,13 +445,12 @@ export default function TranslatorPage() {
             <button
               onClick={handleClearChat}
               disabled={history.length === 0}
-              aria-label="Clear all translation history"
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${
                 history.length === 0
                   ? 'border-slate-800 text-slate-700 cursor-not-allowed'
                   : 'border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/40 hover:bg-rose-500/10'
               }`}
-              title="Clear all translation history"
+              title="Clear Chat"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Clear
@@ -550,7 +504,7 @@ export default function TranslatorPage() {
                 </div>
               )}
 
-              {/* Message history — most recent entries at bottom (chat order) */}
+              {/* Message history */}
               {history.map(msg => (
                 <div
                   key={msg.id}
@@ -565,20 +519,14 @@ export default function TranslatorPage() {
                   </div>
                   <span className="text-[9px] text-slate-600 mt-1 font-bold uppercase tracking-wider px-1 flex items-center gap-1.5">
                     {msg.sender === 'user' ? `You (${msg.language})` : `AI (${msg.language})`}
-                    <span className="text-slate-700 font-normal normal-case tracking-normal">
-                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <button onClick={() => handleCopyText(msg.text, msg.id)} className="text-slate-600 hover:text-slate-300 transition-colors p-0.5" title="Copy">
+                    <button onClick={() => handleCopyText(msg.text, msg.id)} className="text-slate-600 hover:text-slate-300 transition-colors p-0.5">
                       {copiedId === msg.id ? <Check className="h-2.5 w-2.5 text-emerald-500" /> : <Copy className="h-2.5 w-2.5" />}
-                    </button>
-                    <button onClick={() => handleDeleteMessage(msg.id)} className="text-slate-700 hover:text-rose-400 transition-colors p-0.5" title="Delete this entry">
-                      <Trash2 className="h-2.5 w-2.5" />
                     </button>
                   </span>
                 </div>
               ))}
 
-              {/* Live captions — sourceCaption with copy button */}
+              {/* Live captions */}
               {sourceCaption && (
                 <div className="flex flex-col max-w-[88%] self-end items-end">
                   <div className="px-4 py-2.5 rounded-2xl rounded-tr-none bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-sm italic shadow-sm animate-pulse">
@@ -587,18 +535,10 @@ export default function TranslatorPage() {
                   <span className="text-[9px] text-emerald-600 mt-1 font-extrabold flex items-center gap-1 uppercase tracking-wider">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
                     Speaking {sourceLang}...
-                    <button
-                      onClick={() => handleCopyText(sourceCaption, 'live-source')}
-                      className="text-emerald-700 hover:text-emerald-400 transition-colors p-0.5 ml-0.5"
-                      title="Copy source text"
-                    >
-                      {copiedId === 'live-source' ? <Check className="h-2.5 w-2.5 text-emerald-400" /> : <Copy className="h-2.5 w-2.5" />}
-                    </button>
                   </span>
                 </div>
               )}
 
-              {/* Live captions — targetCaption with copy button */}
               {targetCaption && (
                 <div className="flex flex-col max-w-[88%] self-start items-start">
                   <div className="px-4 py-2.5 rounded-2xl rounded-tl-none bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 text-sm shadow-sm">
@@ -607,13 +547,6 @@ export default function TranslatorPage() {
                   <span className="text-[9px] text-indigo-500 mt-1 font-extrabold flex items-center gap-1 uppercase tracking-wider">
                     <Volume2 className="h-2.5 w-2.5 animate-bounce" />
                     Translating to {targetLang}...
-                    <button
-                      onClick={() => handleCopyText(targetCaption, 'live-target')}
-                      className="text-indigo-700 hover:text-indigo-400 transition-colors p-0.5 ml-0.5"
-                      title="Copy translation"
-                    >
-                      {copiedId === 'live-target' ? <Check className="h-2.5 w-2.5 text-indigo-400" /> : <Copy className="h-2.5 w-2.5" />}
-                    </button>
                   </span>
                 </div>
               )}

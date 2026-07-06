@@ -1,0 +1,1 @@
+ E:\\1.PROFESSIONAL\ APPLICATIONS\\Tamil-and-Sinhala-Converter\\mobile\\.dart_tool\\flutter_build\\15d73a77bd1f99e05f163757f376cb6a\\native_assets.json: 
