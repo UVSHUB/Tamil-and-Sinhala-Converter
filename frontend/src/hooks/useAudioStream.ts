@@ -211,7 +211,7 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
           } else if (response.type === 'transcription') {
             setSourceCaption(response.payload.text);
           } else if (response.type === 'translation') {
-            setTargetCaption(response.payload.text);
+            setTargetCaption((prev) => prev + response.payload.text);
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
