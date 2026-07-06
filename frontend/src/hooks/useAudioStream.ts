@@ -319,7 +319,13 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       workletNode.port.onmessage = (event: MessageEvent) => {
         const pcmBuffer = event.data;
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(pcmBuffer);
+          // Prevent feedback loops: do not send microphone data to the server
+          // while the speakers are still playing the translated audio.
+          const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
+          const isAiPlaying = nextPlaybackTimeRef.current > now;
+          if (!isAiPlaying) {
+            socketRef.current.send(pcmBuffer);
+          }
         } else if (isWsConnectingRef.current) {
           // Cap the queue — only keep the most recent ~250ms of audio (30 packets × ~8ms each)
           // Older audio is stale and flooding Gemini with it causes 1011 errors
