@@ -74,6 +74,33 @@ async def websocket_group_translator_endpoint(
         manager.disconnect(websocket)
 
 
+@app.websocket("/ws/translate")
+async def websocket_translator_endpoint(
+    websocket: WebSocket,
+    source: str = "Sinhala",
+    target: str = "Tamil",
+    voice: str = "Aoede"
+):
+    await manager.connect(websocket, 0)
+    logger.info(f"Client connected: {websocket.client} (translating {source} -> {target} with initial voice: {voice})")
+
+    try:
+        await handle_translation_stream(websocket, source, target, voice, group_id=0)
+
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected: {websocket.client}")
+
+    except Exception as e:
+        logger.error(f"WebSocket gateway error: {str(e)}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except RuntimeError:
+            pass
+
+    finally:
+        manager.disconnect(websocket)
+
+
 @app.websocket("/ws/twilio")
 async def websocket_twilio_endpoint(
     websocket: WebSocket,

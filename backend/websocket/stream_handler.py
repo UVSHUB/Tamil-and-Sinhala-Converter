@@ -47,7 +47,7 @@ async def handle_translation_stream(
 
     config = types.LiveConnectConfig(
         response_modalities=["TEXT"],
-        system_instruction=types.Content(parts=[types.Part.from_text(f"You are a professional translator. Translate everything the user says from {source} to {target}. Do not add any conversational filler. Just output the direct translation.")]),
+        system_instruction=types.Content(parts=[types.Part.from_text(text=f"You are a professional translator. Translate everything the user says from {source} to {target}. Do not add any conversational filler. Just output the direct translation.")]),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
