@@ -49,49 +49,23 @@ async def handle_twilio_stream(client_ws: WebSocket, source: str = "Sinhala", ta
     # Inbound config: Caller (Sinhala) -> Gemini translates to Callee (Tamil)
     config_inbound = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        system_instruction=types.Content(
-            parts=[
-                types.Part.from_text(
-                    text=f"You are SinTam, a real-time speech-to-speech translator. Translate the incoming {source} speech to Sri Lankan {target}. Speak the translation directly in a natural, polite tone. Do not echo the source language."
-                )
-            ]
-        ),
         translation_config=types.TranslationConfig(
             target_language_code=inbound_target,
             echo_target_language=True
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
-        realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(
-                disabled=False,
-                silence_duration_ms=400,
-            )
-        )
     )
 
     # Outbound config: Callee (Tamil) -> Gemini translates to Caller (Sinhala)
     config_outbound = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        system_instruction=types.Content(
-            parts=[
-                types.Part.from_text(
-                    text=f"You are SinTam, a real-time speech-to-speech translator. Translate the incoming {target} speech to Sri Lankan {source}. Speak the translation directly in a natural, polite tone. Do not echo the source language."
-                )
-            ]
-        ),
         translation_config=types.TranslationConfig(
             target_language_code=outbound_target,
             echo_target_language=True
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
-        realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(
-                disabled=False,
-                silence_duration_ms=400,
-            )
-        )
     )
 
     # State variables
@@ -244,7 +218,7 @@ async def handle_twilio_stream(client_ws: WebSocket, source: str = "Sinhala", ta
                         # Send to inbound Gemini translator (translates Sinhala -> Tamil)
                         if inbound_session:
                             await inbound_session.send_realtime_input(
-                                media=types.Blob(
+                                audio=types.Blob(
                                     data=pcm_16k_bytes,
                                     mime_type="audio/pcm;rate=16000"
                                 )
@@ -259,7 +233,7 @@ async def handle_twilio_stream(client_ws: WebSocket, source: str = "Sinhala", ta
                         
                         if outbound_session:
                             await outbound_session.send_realtime_input(
-                                media=types.Blob(
+                                audio=types.Blob(
                                     data=pcm_16k_bytes,
                                     mime_type="audio/pcm;rate=16000"
                                 )
