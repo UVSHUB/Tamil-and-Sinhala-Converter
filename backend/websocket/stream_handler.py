@@ -46,8 +46,15 @@ async def handle_translation_stream(
     target_code = language_map.get(target, "ta")
 
     config = types.LiveConnectConfig(
-        response_modalities=["TEXT"],
-        system_instruction=types.Content(parts=[types.Part.from_text(text=f"You are a professional translator. Translate everything the user says from {source} to {target}. Do not add any conversational filler. Just output the direct translation.")]),
+        response_modalities=["AUDIO"],
+        system_instruction=types.Content(parts=[types.Part.from_text(text=f"You are a professional translator. Translate everything the user says from {source} to {target}. Speak the translation directly in a natural, polite tone. Do not add any conversational filler. Just output the direct translation.")]),
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name=voice
+                )
+            )
+        ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
