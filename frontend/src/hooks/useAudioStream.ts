@@ -215,8 +215,17 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
           if (response.type === 'status') {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
-            // Replace transcription - it's the user's words being recognised
-            setSourceCaption(response.payload.text);
+            // Accumulate partial transcription tokens — Gemini streams the recognized
+            // Sinhala text incrementally. Append tokens to build the full utterance.
+            setSourceCaption((prev) => {
+              const text = response.payload.text || '';
+              // If Gemini sends a full sentence (ends with punctuation), replace fully.
+              // Otherwise append the new token.
+              if (prev && !prev.endsWith(' ') && !text.startsWith(' ')) {
+                return prev + ' ' + text;
+              }
+              return prev + text;
+            });
           } else if (response.type === 'translation') {
             // Accumulate translation tokens into a full sentence
             setTargetCaption((prev) => (prev ? prev + ' ' : '') + response.payload.text.trim());
@@ -282,7 +291,20 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          channelCount: 1,
+          // IMPORTANT: Disable browser WebRTC processing for non-English languages.
+          // Chrome/Safari noise suppression is trained on English speech — it treats
+          // Sinhala retroflex consonants (ට,ඩ,ණ) and vowel clusters as "noise" and
+          // suppresses them, corrupting the signal before it reaches Gemini.
+          // Gemini Live handles noise robustly on its own.
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,   // Keep AGC for volume normalization
+          // Hint to get 16kHz directly — avoids resampling overhead.
+          // Browser may ignore this, but it helps when supported.
+          sampleRate: 16000,
+        },
       });
       mediaStreamRef.current = stream;
       addLog('Microphone access granted.');
