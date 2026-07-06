@@ -215,20 +215,11 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
           if (response.type === 'status') {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
-            // Accumulate partial transcription tokens — Gemini streams the recognized
-            // Sinhala text incrementally. Append tokens to build the full utterance.
-            setSourceCaption((prev) => {
-              const text = response.payload.text || '';
-              // If Gemini sends a full sentence (ends with punctuation), replace fully.
-              // Otherwise append the new token.
-              if (prev && !prev.endsWith(' ') && !text.startsWith(' ')) {
-                return prev + ' ' + text;
-              }
-              return prev + text;
-            });
+            // Overwrite with the latest cumulative transcription from Gemini
+            setSourceCaption(response.payload.text || '');
           } else if (response.type === 'translation') {
-            // Accumulate translation tokens into a full sentence
-            setTargetCaption((prev) => (prev ? prev + ' ' : '') + response.payload.text.trim());
+            // Overwrite with the latest cumulative translation from Gemini
+            setTargetCaption(response.payload.text || '');
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
