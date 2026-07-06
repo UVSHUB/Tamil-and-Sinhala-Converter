@@ -209,12 +209,17 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
           if (response.type === 'status') {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
+            // Replace transcription - it's the user's words being recognised
             setSourceCaption(response.payload.text);
           } else if (response.type === 'translation') {
-            setTargetCaption((prev) => prev + response.payload.text);
+            // Accumulate translation tokens into a full sentence
+            setTargetCaption((prev) => (prev ? prev + ' ' : '') + response.payload.text.trim());
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
+            // Reset captions for the next utterance
+            setSourceCaption('');
+            setTargetCaption('');
             setSessionState('AI_LISTENING');
           }
         } catch {
@@ -312,8 +317,10 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
 
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
+      // Connect source -> analyser (for visualizer) AND source -> worklet (for sending)
+      // These are PARALLEL connections, not serial, to avoid analyser buffering artifacts
       source.connect(micAnalyser);
-      micAnalyser.connect(workletNode);
+      source.connect(workletNode);
       addLog('Audio pipeline ready.');
 
       const currentVoiceMode = voiceModeRef.current;

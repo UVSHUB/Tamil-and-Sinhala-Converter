@@ -51,7 +51,6 @@ async def handle_translation_stream(
             target_language_code=target_code,
             echo_target_language=True
         ),
-        system_instruction=types.Content(parts=[types.Part.from_text(text=f"You are a professional translator. Translate everything the user says from {source} to {target}. Speak the translation directly in a natural, polite tone. Do not add any conversational filler. Just output the direct translation.")]),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -60,10 +59,11 @@ async def handle_translation_stream(
             )
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
-                silence_duration_ms=300,
+                silence_duration_ms=800,
             )
         )
     )
@@ -110,29 +110,28 @@ async def handle_translation_stream(
                 try:
                     async for response in session.receive():
                         if response.server_content:
+                            # Input (user speech) transcription
                             if response.server_content.input_transcription:
                                 text = response.server_content.input_transcription.text
                                 if text:
                                     await client_ws.send_json({
                                         "type": "transcription",
-                                        "payload": {
-                                            "speaker": "user",
-                                            "text": text
-                                        }
+                                        "payload": {"speaker": "user", "text": text}
+                                    })
+
+                            # Output (translated) audio + transcription
+                            if response.server_content.output_transcription:
+                                text = response.server_content.output_transcription.text
+                                if text:
+                                    await client_ws.send_json({
+                                        "type": "translation",
+                                        "payload": {"speaker": "ai", "text": text}
                                     })
 
                             if response.server_content.model_turn:
                                 for part in response.server_content.model_turn.parts:
                                     if part.inline_data:
                                         await client_ws.send_bytes(part.inline_data.data)
-                                    if part.text:
-                                        await client_ws.send_json({
-                                            "type": "translation",
-                                            "payload": {
-                                                "speaker": "ai",
-                                                "text": part.text
-                                            }
-                                        })
 
                             if response.server_content.turn_complete:
                                 await client_ws.send_json({
