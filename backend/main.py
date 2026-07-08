@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
+from backend.websocket.auto_stream_handler import handle_auto_translation_stream
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("backend")
@@ -52,6 +53,36 @@ async def websocket_translator_endpoint(
 
     except Exception as e:
         logger.error(f"WebSocket gateway error: {str(e)}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except RuntimeError:
+            pass
+
+    finally:
+        manager.disconnect(websocket)
+
+
+@app.websocket("/ws/translate-auto")
+async def websocket_auto_translator_endpoint(
+    websocket: WebSocket,
+    voice: str = "Aoede"
+):
+    """
+    Bidirectional auto-detect endpoint: no source/target language params needed.
+    Automatically detects whether the user is speaking Sinhala or Tamil and
+    translates to the other language in real time.
+    """
+    await manager.connect(websocket)
+    logger.info(f"Client connected (auto mode): {websocket.client}, voice={voice}")
+
+    try:
+        await handle_auto_translation_stream(websocket, voice)
+
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected (auto mode): {websocket.client}")
+
+    except Exception as e:
+        logger.error(f"WebSocket auto gateway error: {str(e)}")
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except RuntimeError:

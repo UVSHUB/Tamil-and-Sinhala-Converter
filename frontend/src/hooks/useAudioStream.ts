@@ -60,7 +60,7 @@ function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
  * Fixed: language not updating mid-session, no response output, excessive delay,
  * language switching bugs, stale closures in reconnect, and text sending issues.
  */
-export function useAudioStream(sourceLang: string, targetLang: string) {
+export function useAudioStream(sourceLang: string, targetLang: string, autoMode: boolean = false) {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [sessionState, setSessionState] = useState<SessionState>('IDLE');
@@ -72,6 +72,8 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
   const [detectedGender, setDetectedGender] = useState<'male' | 'female' | null>(null);
   const [voiceMode, setVoiceMode] = useState<'auto' | 'manual'>('auto');
   const [ttsVoice, setTtsVoice] = useState<'Aoede' | 'Kore' | 'Charon' | 'Puck' | 'Fenrir'>('Aoede');
+  const [detectedSourceLang, setDetectedSourceLang] = useState<string | null>(null);
+  const [detectedTargetLang, setDetectedTargetLang] = useState<string | null>(null);
 
   const addLog = useCallback((msg: string) => {
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 15)]);
@@ -216,6 +218,10 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
             setSessionState('AI_LISTENING');
+          } else if (response.type === 'lang_detected') {
+            setDetectedSourceLang(response.payload.source);
+            setDetectedTargetLang(response.payload.target);
+            addLog(`Auto-detected: ${response.payload.source} → ${response.payload.target}`);
           }
         } catch {
           addLog(`Raw message: ${e.data}`);
@@ -247,6 +253,99 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
             ? ttsVoiceRef.current
             : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
           connectWebSocket(voice, sourceLangRef.current, targetLangRef.current);
+        }, delay);
+      } else {
+        if (!isActiveSessionRef.current) setSessionState('IDLE');
+      }
+    };
+  }, [addLog, closeSocket, playAudioChunk]);
+
+  // Open the auto-detect WebSocket (no source/target params needed)
+  const connectAutoWebSocket = useCallback((voiceName: string) => {
+    if (isWsConnectingRef.current) return;
+    closeSocket();
+    isWsConnectingRef.current = true;
+
+    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate-auto?voice=${encodeURIComponent(voiceName)}`;
+    addLog(`Connecting auto-detect mode | voice: ${voiceName}`);
+
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+    socket.binaryType = 'arraybuffer';
+    nextPlaybackTimeRef.current = 0;
+
+    socket.onopen = () => {
+      setIsConnected(true);
+      setIsRecording(true);
+      setSessionState('AI_LISTENING');
+      isWsConnectingRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      addLog('Auto-detect connected! Speak in Sinhala or Tamil.');
+
+      if (pcmBufferQueueRef.current.length > 0 && pcmBufferQueueRef.current.length <= 30) {
+        for (const chunk of pcmBufferQueueRef.current) socket.send(chunk);
+        addLog(`Flushed ${pcmBufferQueueRef.current.length} buffered packets.`);
+      } else if (pcmBufferQueueRef.current.length > 30) {
+        addLog(`Discarded ${pcmBufferQueueRef.current.length} stale audio packets.`);
+      }
+      pcmBufferQueueRef.current = [];
+
+      if (pendingTextRef.current) {
+        socket.send(pendingTextRef.current);
+        addLog(`Sent pending text: "${pendingTextRef.current}"`);
+        pendingTextRef.current = null;
+      }
+    };
+
+    socket.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        try {
+          const response = JSON.parse(e.data);
+          if (response.type === 'status') {
+            addLog(`[Server] ${response.payload.message}`);
+          } else if (response.type === 'transcription') {
+            setSourceCaption(response.payload.text);
+          } else if (response.type === 'translation') {
+            setTargetCaption(response.payload.text);
+            setSessionState('AI_SPEAKING');
+          } else if (response.type === 'turn_complete') {
+            addLog('Turn complete.');
+            setSessionState('AI_LISTENING');
+          } else if (response.type === 'lang_detected') {
+            setDetectedSourceLang(response.payload.source);
+            setDetectedTargetLang(response.payload.target);
+            addLog(`Auto-detected: ${response.payload.source} → ${response.payload.target}`);
+          }
+        } catch {
+          addLog(`Raw message: ${e.data}`);
+        }
+      } else if (e.data instanceof ArrayBuffer) {
+        playAudioChunk(e.data);
+      }
+    };
+
+    socket.onerror = () => {
+      addLog('WebSocket error (auto).');
+      setSessionState('ERROR');
+    };
+
+    socket.onclose = (event) => {
+      addLog(`WebSocket closed (auto, code: ${event.code}).`);
+      setIsConnected(false);
+      setIsRecording(false);
+      isWsConnectingRef.current = false;
+
+      if (!isManualCloseRef.current && isActiveSessionRef.current && reconnectAttemptsRef.current < 5) {
+        setSessionState('AI_THINKING');
+        reconnectAttemptsRef.current += 1;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        addLog(`Reconnecting in ${delay}ms (Attempt ${reconnectAttemptsRef.current}/5)...`);
+
+        reconnectTimerRef.current = setTimeout(() => {
+          const voice = voiceModeRef.current === 'manual'
+            ? ttsVoiceRef.current
+            : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
+          connectAutoWebSocket(voice);
         }, delay);
       } else {
         if (!isActiveSessionRef.current) setSessionState('IDLE');
@@ -319,7 +418,51 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       const currentVoiceMode = voiceModeRef.current;
       const currentTtsVoice = ttsVoiceRef.current;
 
-      if (currentVoiceMode === 'manual') {
+      if (autoMode) {
+        // Auto-detect mode: connect to /ws/translate-auto regardless of voice mode
+        if (currentVoiceMode === 'manual') {
+          connectAutoWebSocket(currentTtsVoice);
+        } else {
+          const pitchBuffer = new Float32Array(2048);
+          const consecutiveGenders: ('male' | 'female')[] = [];
+
+          const timeoutId = setTimeout(() => {
+            if (pitchIntervalRef.current) {
+              clearInterval(pitchIntervalRef.current);
+              pitchIntervalRef.current = null;
+            }
+            if (!socketRef.current && !isWsConnectingRef.current) {
+              addLog('Pitch timeout. Connecting with default voice (Aoede)...');
+              connectAutoWebSocket('Aoede');
+            }
+          }, 1000);
+
+          pitchIntervalRef.current = setInterval(() => {
+            if (!micAnalyserRef.current) return;
+            micAnalyserRef.current.getFloatTimeDomainData(pitchBuffer);
+            const pitch = autoCorrelate(pitchBuffer, audioCtx.sampleRate);
+
+            if (pitch > 0) {
+              const gender = pitch >= 160 ? 'female' : 'male';
+              consecutiveGenders.push(gender);
+              if (consecutiveGenders.length > 3) consecutiveGenders.shift();
+
+              if (consecutiveGenders.length === 3 && consecutiveGenders.every(g => g === consecutiveGenders[0])) {
+                clearTimeout(timeoutId);
+                clearInterval(pitchIntervalRef.current);
+                pitchIntervalRef.current = null;
+
+                const stableGender = consecutiveGenders[0];
+                detectedGenderRef.current = stableGender;
+                setDetectedGender(stableGender);
+                addLog(`Voice: ${stableGender} (${Math.round(pitch)}Hz). Connecting auto-detect...`);
+
+                connectAutoWebSocket(stableGender === 'male' ? 'Charon' : 'Aoede');
+              }
+            }
+          }, 150);
+        }
+      } else if (currentVoiceMode === 'manual') {
         connectWebSocket(currentTtsVoice, src, tgt);
       } else {
         const pitchBuffer = new Float32Array(2048);
@@ -366,7 +509,7 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
       setSessionState('ERROR');
       stopStream();
     }
-  }, [addLog, connectWebSocket]);
+  }, [addLog, connectWebSocket, connectAutoWebSocket, autoMode]);
 
   // Full session stop: tear down everything
   const stopStream = useCallback(() => {
@@ -451,5 +594,14 @@ export function useAudioStream(sourceLang: string, targetLang: string) {
     logs, isMuted, toggleMute, sendText, startStream, stopStream,
     setSourceCaption, setTargetCaption, addLog, micAnalyserRef, aiAnalyserRef,
     detectedGender, voiceMode, setVoiceMode, ttsVoice, setTtsVoice,
+    detectedSourceLang, detectedTargetLang,
   };
+}
+
+/**
+ * Convenience hook for auto-detect bidirectional Sinhala <-> Tamil translation.
+ * Connects to /ws/translate-auto — no manual language selection needed.
+ */
+export function useAutoStream() {
+  return useAudioStream('Sinhala', 'Tamil', true);
 }
