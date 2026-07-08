@@ -1,4 +1,4 @@
-﻿"""
+"""
 Auto-detect bidirectional Sinhala <-> Tamil translation using the translate model.
 
 Strategy:
@@ -49,7 +49,11 @@ def _build_translate_config(target_code: str) -> types.LiveConnectConfig:
         response_modalities=["AUDIO"],
         translation_config=types.TranslationConfig(
             target_language_code=target_code,
-            echo_target_language=False,
+            # MUST be True: when False, the model suppresses ALL output
+            # (including input_transcription) when the user speaks in the
+            # target language, so our flip-detection never fires.
+            # We suppress the echo audio ourselves in receive_responses().
+            echo_target_language=True,
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -184,21 +188,28 @@ async def handle_auto_translation_stream(
                                             break
 
                                 if sc.output_transcription and sc.output_transcription.text:
-                                    try:
-                                        await client_ws.send_json({
-                                            "type": "translation",
-                                            "payload": {
-                                                "speaker": "ai",
-                                                "text": sc.output_transcription.text,
-                                            },
-                                        })
-                                    except Exception:
-                                        client_disconnected.set()
-                                        return
+                                    # Suppress echo text (same as echo audio suppression)
+                                    if not flip_needed.is_set():
+                                        try:
+                                            await client_ws.send_json({
+                                                "type": "translation",
+                                                "payload": {
+                                                    "speaker": "ai",
+                                                    "text": sc.output_transcription.text,
+                                                },
+                                            })
+                                        except Exception:
+                                            client_disconnected.set()
+                                            return
 
                                 if sc.model_turn:
                                     for part in sc.model_turn.parts:
                                         if part.inline_data and part.inline_data.data:
+                                            # Suppress audio when flip is pending:
+                                            # the model is echoing the target language
+                                            # back and we don't want to play it.
+                                            if flip_needed.is_set():
+                                                continue
                                             try:
                                                 await client_ws.send_bytes(part.inline_data.data)
                                             except Exception:
