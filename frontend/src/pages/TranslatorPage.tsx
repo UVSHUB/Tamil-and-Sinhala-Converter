@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Mic, MicOff, Sparkles, RefreshCw,
+  Mic, MicOff, Sparkles,
   Settings, Wifi, ShieldAlert,
   Volume2, VolumeX, Trash2, Terminal,
-  Copy, Check, Send, MessageSquare, X,
+  Copy, Check, Send, MessageSquare, X, Zap,
 } from 'lucide-react';
-import { useAudioStream } from '../hooks/useAudioStream';
+import { useAutoStream } from '../hooks/useAudioStream';
 
 interface ChatMessage {
   id: string;
@@ -15,30 +15,12 @@ interface ChatMessage {
   language: string;
 }
 
-const LANGUAGES = [
-  { code: 'Sinhala', name: 'Sinhala' },
-  { code: 'Tamil', name: 'Tamil' },
-  { code: 'English', name: 'English' },
-  { code: 'Korean', name: 'Korean' },
-  { code: 'Spanish', name: 'Spanish' },
-  { code: 'Japanese', name: 'Japanese' },
-  { code: 'Chinese', name: 'Chinese' },
-  { code: 'French', name: 'French' },
-  { code: 'German', name: 'German' },
-];
 
 export default function TranslatorPage() {
-  const [sourceLang, setSourceLang] = useState<string>('Sinhala');
-  const [targetLang, setTargetLang] = useState<string>('Tamil');
   const [showConfig, setShowConfig] = useState<boolean>(false);
   const [showLogs, setShowLogs] = useState<boolean>(false);
   const [showChat, setShowChat] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(80);
-
-  const sourceLangArchiveRef = useRef<string>('Sinhala');
-  const targetLangArchiveRef = useRef<string>('Tamil');
-  useEffect(() => { sourceLangArchiveRef.current = sourceLang; }, [sourceLang]);
-  useEffect(() => { targetLangArchiveRef.current = targetLang; }, [targetLang]);
 
   const [history, setHistory] = useState<ChatMessage[]>(() => {
     const saved = localStorage.getItem('sintam_history');
@@ -75,7 +57,13 @@ export default function TranslatorPage() {
     setVoiceMode,
     ttsVoice,
     setTtsVoice,
-  } = useAudioStream(sourceLang, targetLang);
+    detectedSourceLang,
+    detectedTargetLang,
+  } = useAutoStream();
+
+  // Keep track of effective src/tgt for chat archive
+  const sourceLang = detectedSourceLang ?? 'Sinhala';
+  const targetLang = detectedTargetLang ?? 'Tamil';
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -187,10 +175,8 @@ export default function TranslatorPage() {
         if (userText || aiText) {
           const timestamp = new Date();
           const newMessages: ChatMessage[] = [];
-          const currentSrc = sourceLangArchiveRef.current;
-          const currentTgt = targetLangArchiveRef.current;
-          if (userText) newMessages.push({ id: `user-${Date.now()}`, sender: 'user', text: userText, timestamp, language: currentSrc });
-          if (aiText) newMessages.push({ id: `ai-${Date.now() + 1}`, sender: 'ai', text: aiText, timestamp, language: currentTgt });
+          if (userText) newMessages.push({ id: `user-${Date.now()}`, sender: 'user', text: userText, timestamp, language: sourceLang });
+          if (aiText) newMessages.push({ id: `ai-${Date.now() + 1}`, sender: 'ai', text: aiText, timestamp, language: targetLang });
           setHistory(prev => [...prev, ...newMessages]);
           setSourceCaption('');
           setTargetCaption('');
@@ -198,20 +184,11 @@ export default function TranslatorPage() {
       }
     }
     prevSessionState.current = sessionState;
-  }, [sessionState, sourceCaption, targetCaption, setSourceCaption, setTargetCaption]);
+  }, [sessionState, sourceCaption, targetCaption, sourceLang, targetLang, setSourceCaption, setTargetCaption]);
 
   const handleStartSession = () => {
     if (sessionState === 'IDLE' || sessionState === 'ERROR') startStream();
     else stopStream();
-  };
-
-  const handleSwapLanguages = () => {
-    const temp = sourceLang;
-    setSourceLang(targetLang);
-    setTargetLang(temp);
-    setSourceCaption('');
-    setTargetCaption('');
-    addLog(`Swapped: ${targetLang} ↔ ${temp}`);
   };
 
   const handleClearChat = () => {
@@ -292,48 +269,43 @@ export default function TranslatorPage() {
         </div>
       </header>
 
-      {/* ── LANGUAGE SELECTOR (top center) ───────────────────── */}
-      <div className="flex justify-center px-5 py-4 shrink-0">
-        <div className="flex items-center gap-3 bg-slate-900 border border-slate-700/60 rounded-2xl px-4 py-3 shadow-xl shadow-black/30 w-full max-w-lg">
-          {/* Source */}
-          <div className="flex-1 relative">
-            <label className="block text-[9px] font-bold uppercase tracking-widest text-indigo-400 mb-1 pl-0.5">From</label>
-            <div className="relative">
-              <select
-                value={sourceLang}
-                onChange={e => setSourceLang(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all appearance-none cursor-pointer"
-              >
-                {LANGUAGES.map(l => <option key={l.code} value={l.code} className="bg-slate-800">{l.name}</option>)}
-              </select>
-              <div className="absolute inset-y-0 right-2.5 flex items-center pointer-events-none text-indigo-400">
-                <svg className="w-3 h-3 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
-              </div>
-            </div>
+      {/* ── AUTO-DETECT LANGUAGE DISPLAY (replaces manual selectors) ── */}
+      <div className="flex justify-center px-5 py-3 shrink-0">
+        <div className="flex items-center gap-3 bg-slate-900 border border-slate-700/60 rounded-2xl px-5 py-3 shadow-xl shadow-black/30 w-full max-w-lg">
+          {/* Auto mode badge */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-extrabold uppercase tracking-widest shrink-0">
+            <Zap className="h-2.5 w-2.5" />
+            Auto
           </div>
 
-          {/* Swap button */}
-          <div className="flex flex-col items-center gap-0.5 pt-4">
-            <button onClick={handleSwapLanguages} className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all hover:scale-110 active:scale-95 shadow-md">
-              <RefreshCw className="h-4 w-4" />
-            </button>
+          {/* Detected source */}
+          <div className="flex-1 flex flex-col items-center">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-400 mb-0.5">Speaking</span>
+            <span className={`text-sm font-extrabold transition-all duration-500 ${
+              detectedSourceLang ? 'text-white' : 'text-slate-600 animate-pulse'
+            }`}>
+              {detectedSourceLang ?? 'Detecting...'}
+            </span>
           </div>
 
-          {/* Target */}
-          <div className="flex-1 relative">
-            <label className="block text-[9px] font-bold uppercase tracking-widest text-emerald-400 mb-1 pl-0.5">To</label>
-            <div className="relative">
-              <select
-                value={targetLang}
-                onChange={e => setTargetLang(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all appearance-none cursor-pointer"
-              >
-                {LANGUAGES.map(l => <option key={l.code} value={l.code} className="bg-slate-800">{l.name}</option>)}
-              </select>
-              <div className="absolute inset-y-0 right-2.5 flex items-center pointer-events-none text-emerald-400">
-                <svg className="w-3 h-3 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
-              </div>
+          {/* Arrow */}
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center gap-1 text-slate-500">
+              <div className="h-px w-6 bg-gradient-to-r from-indigo-500/50 to-emerald-500/50" />
+              <span className="text-emerald-400 text-sm font-bold">→</span>
+              <div className="h-px w-6 bg-gradient-to-r from-emerald-500/50 to-indigo-500/50" />
             </div>
+            <span className="text-[8px] uppercase tracking-wider text-slate-600 font-bold">Live</span>
+          </div>
+
+          {/* Detected target */}
+          <div className="flex-1 flex flex-col items-center">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400 mb-0.5">Translating to</span>
+            <span className={`text-sm font-extrabold transition-all duration-500 ${
+              detectedTargetLang ? 'text-white' : 'text-slate-600 animate-pulse'
+            }`}>
+              {detectedTargetLang ?? 'Detecting...'}
+            </span>
           </div>
         </div>
       </div>
