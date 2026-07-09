@@ -40,10 +40,11 @@ async def websocket_translator_endpoint(
     websocket: WebSocket,
     source: str = "Sinhala",
     target: str = "Tamil",
-    voice: str = "Aoede"
+    voice: str = "Aoede",
+    room: str = "default"
 ):
-    await manager.connect(websocket)
-    logger.info(f"Client connected: {websocket.client} (translating {source} -> {target} with initial voice: {voice})")
+    await manager.connect(websocket, room)
+    logger.info(f"Client connected: {websocket.client} (room={room}, translating {source} -> {target} with initial voice: {voice})")
 
     try:
         await handle_translation_stream(websocket, source, target, voice)
@@ -59,24 +60,25 @@ async def websocket_translator_endpoint(
             pass
 
     finally:
-        manager.disconnect(websocket)
+        manager.disconnect(websocket, room)
 
 
 @app.websocket("/ws/translate-auto")
 async def websocket_auto_translator_endpoint(
     websocket: WebSocket,
-    voice: str = "Aoede"
+    voice: str = "Aoede",
+    room: str = "default"
 ):
     """
     Bidirectional auto-detect endpoint: no source/target language params needed.
     Automatically detects whether the user is speaking Sinhala or Tamil and
     translates to the other language in real time.
     """
-    await manager.connect(websocket)
-    logger.info(f"Client connected (auto mode): {websocket.client}, voice={voice}")
+    await manager.connect(websocket, room)
+    logger.info(f"Client connected (auto mode): {websocket.client}, room={room}, voice={voice}")
 
     try:
-        await handle_auto_translation_stream(websocket, voice)
+        await handle_auto_translation_stream(websocket, voice, room)
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected (auto mode): {websocket.client}")
@@ -89,7 +91,7 @@ async def websocket_auto_translator_endpoint(
             pass
 
     finally:
-        manager.disconnect(websocket)
+        manager.disconnect(websocket, room)
 
 
 if __name__ == "__main__":

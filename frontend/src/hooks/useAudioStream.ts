@@ -505,9 +505,20 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         }, 150);
       }
     } catch (error: any) {
-      addLog(`Failed to start: ${error.message || error}`);
+      const errMsg = error.message || error;
+      addLog(`Failed to start: ${errMsg}`);
       setSessionState('ERROR');
       stopStream();
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert(
+          "Microphone Blocked!\n\n" +
+          "Your mobile browser requires a secure HTTPS context to use the microphone.\n\n" +
+          "Please enable the Chrome flag bypass (chrome://flags/#unsafely-treat-insecure-origin-as-secure) or expose your local server using a secure tunnel (like Ngrok)."
+        );
+      } else {
+        alert(`Failed to start microphone: ${errMsg}\n\nPlease verify browser microphone permissions.`);
+      }
     }
   }, [addLog, connectWebSocket, connectAutoWebSocket, autoMode]);
 
