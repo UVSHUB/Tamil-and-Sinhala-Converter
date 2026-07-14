@@ -21,7 +21,7 @@ export default function TranslatorPage() {
   const [showLogs, setShowLogs] = useState<boolean>(false);
   const [showChat, setShowChat] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(80);
-  const [bubbles, setBubbles] = useState<Array<{ id: number; x: number; size: number; duration: number; delay: number }>>([]);
+  const [bubbles, setBubbles] = useState<Array<{ id: number; x: number; y: number; size: number; duration: number; delay: number }>>([]);
 
   const [history, setHistory] = useState<ChatMessage[]>(() => {
     const saved = localStorage.getItem('sintam_history');
@@ -75,6 +75,7 @@ export default function TranslatorPage() {
     const newBubbles = Array.from({ length: 15 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
+      y: Math.random() * 80,
       size: Math.random() * 60 + 20,
       duration: Math.random() * 10 + 8,
       delay: Math.random() * 5,
@@ -253,28 +254,26 @@ export default function TranslatorPage() {
             className="absolute rounded-full bg-gradient-to-br from-indigo-500/10 to-violet-500/5 border border-indigo-500/10"
             style={{
               left: `${bubble.x}%`,
-              bottom: '-100px',
+              top: `${bubble.y}%`,
               width: `${bubble.size}px`,
               height: `${bubble.size}px`,
-              animation: `floatUp ${bubble.duration}s ease-in-out ${bubble.delay}s infinite`,
+              animation: `fadeInOut ${bubble.duration}s ease-in-out ${bubble.delay}s infinite`,
             }}
           />
         ))}
         <style>{`
-          @keyframes floatUp {
+          @keyframes fadeInOut {
             0% {
-              transform: translateY(0) scale(1);
               opacity: 0;
+              transform: scale(0.8);
             }
-            10% {
-              opacity: 0.6;
-            }
-            90% {
-              opacity: 0.6;
+            50% {
+              opacity: 0.5;
+              transform: scale(1);
             }
             100% {
-              transform: translateY(-120vh) scale(1.2);
               opacity: 0;
+              transform: scale(1.2);
             }
           }
         `}</style>
