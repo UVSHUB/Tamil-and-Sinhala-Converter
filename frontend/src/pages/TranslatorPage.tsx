@@ -21,6 +21,7 @@ export default function TranslatorPage() {
   const [showLogs, setShowLogs] = useState<boolean>(false);
   const [showChat, setShowChat] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(80);
+  const [bubbles, setBubbles] = useState<Array<{ id: number; x: number; size: number; duration: number; delay: number }>>([]);
 
   const [history, setHistory] = useState<ChatMessage[]>(() => {
     const saved = localStorage.getItem('sintam_history');
@@ -68,6 +69,18 @@ export default function TranslatorPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevSessionState = useRef<string>('IDLE');
+
+  // Generate bubbles for background animation
+  useEffect(() => {
+    const newBubbles = Array.from({ length: 15 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      size: Math.random() * 60 + 20,
+      duration: Math.random() * 10 + 8,
+      delay: Math.random() * 5,
+    }));
+    setBubbles(newBubbles);
+  }, []);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   useEffect(() => { scrollToBottom(); }, [history, sourceCaption, targetCaption]);
@@ -231,7 +244,41 @@ export default function TranslatorPage() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen bg-slate-950 overflow-hidden font-sans relative">
+      {/* Background bubbles */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {bubbles.map((bubble) => (
+          <div
+            key={bubble.id}
+            className="absolute rounded-full bg-gradient-to-br from-indigo-500/10 to-violet-500/5 border border-indigo-500/10"
+            style={{
+              left: `${bubble.x}%`,
+              bottom: '-100px',
+              width: `${bubble.size}px`,
+              height: `${bubble.size}px`,
+              animation: `floatUp ${bubble.duration}s ease-in-out ${bubble.delay}s infinite`,
+            }}
+          />
+        ))}
+        <style>{`
+          @keyframes floatUp {
+            0% {
+              transform: translateY(0) scale(1);
+              opacity: 0;
+            }
+            10% {
+              opacity: 0.6;
+            }
+            90% {
+              opacity: 0.6;
+            }
+            100% {
+              transform: translateY(-120vh) scale(1.2);
+              opacity: 0;
+            }
+          }
+        `}</style>
+      </div>
 
       {/* ── HEADER ───────────────────────────────────────────── */}
       <header className="flex items-center justify-between px-5 py-3 border-b border-slate-800 shrink-0">
