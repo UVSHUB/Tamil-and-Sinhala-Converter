@@ -4,6 +4,23 @@ A production-ready, low-latency, bidirectional real-time speech-to-speech transl
 
 ---
 
+## 🏬 Call-Center Problem & Business Case
+
+* **Traditional Call Centers**: Require **500+ human translators** on payroll to support multi-lingual operations, costing millions of dollars annually.
+* **Target Company Reality**: Employs only **2 to 3 human translators** while the majority of staff are **local Sinhala speakers** receiving high volumes of **Tamil customer calls**.
+* **AI Solution**: Replaces massive human translator requirements by empowering local Sinhala staff to handle Tamil customer calls effortlessly in real time via an **AI-powered WebSocket translation pool**, saving immense labor costs while removing customer wait times.
+
+---
+
+## ⚡ Concurrent Socket Pool Architecture (10x Parallel Channels)
+
+To ensure zero call blocking during high-volume periods, the backend implements a **10-Channel Concurrent WebSocket Pool**:
+* **Channel Pool A (10 Sockets)**: Dedicated Sinhala $\rightarrow$ Tamil AI translation streams for local agent speech.
+* **Channel Pool B (10 Sockets)**: Dedicated Tamil $\rightarrow$ Sinhala AI translation streams for incoming customer speech.
+* **Total Capacity**: 20 parallel WebSockets per active call-center node handling 10 simultaneous multi-agent calls concurrently.
+
+---
+
 ## 🛠️ Tech Stack & Protocols
 
 ### Frontend
