@@ -1,17 +1,20 @@
 """
-Room-based Multi-device Walkie-Talkie Bidirectional Translation (Sinhala <-> Tamil).
+Call-Center Multi-Agent Bidirectional Translation Engine (Sinhala <-> Tamil).
 
-Architecture:
-  1. For EACH connected client in a room, we run TWO Gemini translate sessions:
-     - Session A: target=Tamil   (translates Sinhala -> Tamil)
-     - Session B: target=Sinhala (translates Tamil -> Sinhala)
+Business Context:
+  Empowers local Sinhala-speaking call-center agents to seamlessly handle high-volume
+  Tamil customer calls without requiring a large staff of human translators.
 
-  2. Both sessions receive all incoming audio from their client.
-  3. Real-time language detection via input_transcription toggles the "active" session.
+Architecture & Scalability:
+  1. Concurrency Model: Supports isolated call rooms for up to 10 concurrent active calls 
+     (20 parallel Gemini Live WebSocket streams: 10 Sinhala->Tamil + 10 Tamil->Sinhala).
+  2. For EACH connected client in a room, we run TWO Gemini translate sessions:
+     - Session A (Target: Tamil):   Translates local agent Sinhala speech -> Tamil
+     - Session B (Target: Sinhala): Translates customer Tamil speech -> Sinhala
+  3. Real-time language script detection toggles the "active" session dynamically.
   4. Audio output routing:
-     - The speaker does NOT hear their own translation (prevents speaker-to-mic feedback loops).
-     - The translated voice audio is broadcast to all OTHER clients in the room.
-     - Both speaker and listener see the transcription and translation texts on their screen.
+     - Speaker echo suppression (prevents feedback loops).
+     - Translated audio and transcriptions are broadcast to all room callers.
 """
 import asyncio
 import json

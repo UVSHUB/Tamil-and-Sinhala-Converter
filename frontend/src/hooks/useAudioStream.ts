@@ -63,6 +63,7 @@ function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
 export function useAudioStream(sourceLang: string, targetLang: string, autoMode: boolean = false) {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [room, setRoom] = useState<string>('default');
   const [sessionState, setSessionState] = useState<SessionState>('IDLE');
   const [sourceCaption, setSourceCaption] = useState<string>('');
   const [targetCaption, setTargetCaption] = useState<string>('');
@@ -170,8 +171,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}`;
-    addLog(`Connecting: ${src} → ${tgt} | voice: ${voiceName}`);
+    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}`;
+    addLog(`Connecting (Room: ${room}): ${src} → ${tgt} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
@@ -258,7 +259,7 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         if (!isActiveSessionRef.current) setSessionState('IDLE');
       }
     };
-  }, [addLog, closeSocket, playAudioChunk]);
+  }, [addLog, closeSocket, playAudioChunk, room]);
 
   // Open the auto-detect WebSocket (no source/target params needed)
   const connectAutoWebSocket = useCallback((voiceName: string) => {
@@ -266,8 +267,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate-auto?voice=${encodeURIComponent(voiceName)}`;
-    addLog(`Connecting auto-detect mode | voice: ${voiceName}`);
+    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}`;
+    addLog(`Connecting auto-detect mode (Room: ${room}) | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
@@ -351,7 +352,7 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         if (!isActiveSessionRef.current) setSessionState('IDLE');
       }
     };
-  }, [addLog, closeSocket, playAudioChunk]);
+  }, [addLog, closeSocket, playAudioChunk, room]);
 
   // Full session start: grab mic, load worklet, connect WebSocket
   const startStream = useCallback(async () => {
@@ -606,6 +607,7 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     setSourceCaption, setTargetCaption, addLog, micAnalyserRef, aiAnalyserRef,
     detectedGender, voiceMode, setVoiceMode, ttsVoice, setTtsVoice,
     detectedSourceLang, detectedTargetLang,
+    room, setRoom,
   };
 }
 
