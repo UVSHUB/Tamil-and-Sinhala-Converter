@@ -43,7 +43,9 @@ async def websocket_translator_endpoint(
     voice: str = "Aoede",
     room: str = "default"
 ):
-    await manager.connect(websocket, room)
+    connected = await manager.connect(websocket, room)
+    if not connected:
+        return
     logger.info(f"Client connected: {websocket.client} (room={room}, translating {source} -> {target} with initial voice: {voice})")
 
     try:
@@ -74,7 +76,9 @@ async def websocket_auto_translator_endpoint(
     Automatically detects whether the user is speaking Sinhala or Tamil and
     translates to the other language in real time.
     """
-    await manager.connect(websocket, room)
+    connected = await manager.connect(websocket, room)
+    if not connected:
+        return
     logger.info(f"Client connected (auto mode): {websocket.client}, room={room}, voice={voice}")
 
     try:

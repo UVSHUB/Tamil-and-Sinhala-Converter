@@ -1,6 +1,8 @@
 from typing import Set, Dict
 from fastapi import WebSocket
 
+MAX_CALLS_PER_ROOM = 10  # Maximum 10 active call channels per room cluster
+
 class ConnectionManager:
     def __init__(self):
         # Map of room_id -> Set of active WebSocket connections
@@ -11,7 +13,18 @@ class ConnectionManager:
         await websocket.accept()
         if room_id not in self.rooms:
             self.rooms[room_id] = set()
+        
+        # Enforce maximum concurrent callers per room (10 calls max)
+        if len(self.rooms[room_id]) >= MAX_CALLS_PER_ROOM * 2:
+            await websocket.send_json({
+                "type": "error",
+                "payload": {"message": f"Room '{room_id}' has reached maximum concurrent call capacity ({MAX_CALLS_PER_ROOM} calls)."}
+            })
+            await websocket.close(code=1008, reason="Room full")
+            return False
+
         self.rooms[room_id].add(websocket)
+        return True
 
     def disconnect(self, websocket: WebSocket, room_id: str = "default"):
         """Remove connection from the room tracking."""
