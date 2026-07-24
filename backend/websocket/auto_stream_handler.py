@@ -27,29 +27,33 @@ from backend.websocket.connection_manager import manager
 
 logger = logging.getLogger("backend")
 
-_CODE_LANG = {"si": "Sinhala", "ta": "Tamil"}
-_OPPOSITE   = {"ta": "si", "si": "ta"}
+_CODE_LANG = {"si": "Sinhala", "ta": "Tamil", "en": "English"}
+_OPPOSITE   = {"ta": "si", "si": "ta", "en": "si"}
 
 
 def _detect_language(text: str) -> str | None:
     """
-    Detect whether text is predominantly Sinhala or Tamil by inspecting
+    Detect whether text is predominantly Sinhala, Tamil, or English by inspecting
     Unicode script ranges.
     """
-    si = ta = 0
+    si = ta = en = 0
     for ch in text:
         cp = ord(ch)
         if 0x0D80 <= cp <= 0x0DFF:
             si += 1
         elif 0x0B80 <= cp <= 0x0BFF:
             ta += 1
-    total = si + ta
+        elif (0x0041 <= cp <= 0x005A) or (0x0061 <= cp <= 0x007A):
+            en += 1
+    total = si + ta + en
     if total == 0:
         return None
-    if si / total >= 0.6:
+    if si / total >= 0.5:
         return "Sinhala"
-    if ta / total >= 0.6:
+    if ta / total >= 0.5:
         return "Tamil"
+    if en / total >= 0.5:
+        return "English"
     return None
 
 
