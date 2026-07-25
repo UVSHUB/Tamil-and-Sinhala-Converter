@@ -45,9 +45,9 @@ if (pipRes.status !== 0) {
   process.exit(pipRes.status || 1);
 }
 
-// 4. Start uvicorn
+// 4. Start uvicorn via python module
 console.log('Starting FastAPI backend...');
-const uvicornProcess = spawn(uvicornExec, ['backend.main:app', '--reload', '--host', '0.0.0.0', '--port', '8000'], {
+const uvicornProcess = spawn(pythonExec, ['-m', 'uvicorn', 'backend.main:app', '--reload', '--host', '0.0.0.0', '--port', '8000'], {
   cwd: rootDir,
   stdio: 'inherit'
 });
