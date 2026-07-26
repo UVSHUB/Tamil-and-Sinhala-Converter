@@ -210,3 +210,28 @@ All communication during a live translation session is executed over the single 
       }
     }
     ```
+
+---
+
+## 📞 Asterisk PBX Telephony Integration
+
+The platform includes built-in **Asterisk PBX integration**, allowing phone callers (from SIP softphones, IP desk phones, or PSTN landlines) to dial into the live translation system over standard telephony channels.
+
+### Architecture & AudioSocket Bridge
+- **Asterisk Container**: Exposes SIP port `5060/udp` and RTP media range `10000-10099/udp`.
+- **AudioSocket Bridge**: An asynchronous TCP service ([audiosocket_bridge.py](file:///Users/uvs/SLT/Tamil-and-Sinhala-Converter/backend/asterisk/audiosocket_bridge.py)) listening on port `9092` that streams raw uncompressed SLIN PCM between Asterisk and the FastAPI `/ws/translate-auto` WebSocket endpoint.
+- **Sample Rate Converter**: Converts between telephony 8kHz 16-bit PCM and Gemini 16kHz 16-bit PCM in real time.
+
+### How to Test with a SIP Softphone (MicroSIP / Linphone / Zoiper)
+1. **Start the Docker Stack**:
+   ```bash
+   docker-compose up --build
+   ```
+2. **Configure your SIP Softphone**:
+   - **SIP Server**: `127.0.0.1:5060`
+   - **User ID**: `1001` (or `1002`)
+   - **Password**: `1001pass` (or `1002pass`)
+3. **Dial Extension `8000`**:
+   - The call connects to Asterisk and triggers the `AudioSocket` bridge.
+   - Speak in Sinhala or Tamil into your microphone; hear the live translated speech in real time over the phone!
+
