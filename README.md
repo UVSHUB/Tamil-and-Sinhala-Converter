@@ -128,7 +128,24 @@ To ensure efficient workspace distribution, responsibilities are divided into th
 
 ## 🚀 Quick Start Guide
 
-### 1. Configure Local Environment variables
+### 1. One-step Backend Bootstrap
+A new contributor can set up the backend using only Python from the repository root:
+```bash
+python setup_backend.py
+```
+This will:
+- create a `.venv` virtual environment,
+- install backend dependencies from `requirements.txt`,
+- copy `.env.example` to `.env` if no `.env` exists.
+
+To install and immediately run the backend:
+```bash
+python setup_backend.py --run
+```
+
+> After first setup, open `.env` and set `GEMINI_API_KEY` before starting the backend.
+
+### 2. Configure Local Environment variables
 Copy the template variables file and add your Google Studio credentials:
 ```bash
 cp .env.example .env
@@ -136,7 +153,7 @@ cp .env.example .env
 Open `.env` and fill in:
 `GEMINI_API_KEY=AIzaSy...`
 
-### 2. Standard Local Run (No Containerization)
+### 3. Standard Local Run (No Containerization)
 Ensure Python 3.11+ and Node 20+ are installed locally.
 
 **Start the Backend**:
