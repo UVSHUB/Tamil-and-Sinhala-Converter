@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     
     # Gemini AI model to target for real-time live content generation
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     
     # Backend local logger configurations
     LOG_LEVEL: str = "INFO"

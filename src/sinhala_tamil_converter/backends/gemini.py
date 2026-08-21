@@ -13,7 +13,7 @@ from sinhala_tamil_converter.models import Language, TranslationResult
 class GeminiTranslationBackend(BaseTranslationBackend):
     """Translation engine powered by Google GenAI."""
 
-    DEFAULT_MODEL = "gemini-2.0-flash"
+    DEFAULT_MODEL = "gemini-3.6-flash"
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         """Initialize the Gemini backend.
@@ -31,6 +31,14 @@ class GeminiTranslationBackend(BaseTranslationBackend):
         """Lazily initialize and return the Google GenAI client."""
         if self._client is None:
             resolved_key = self.api_key or os.environ.get("GEMINI_API_KEY")
+            if not resolved_key:
+                try:
+                    from dotenv import load_dotenv
+                    load_dotenv()
+                    resolved_key = os.environ.get("GEMINI_API_KEY")
+                except ImportError:
+                    pass
+
             if not resolved_key:
                 raise TranslationAPIError(
                     "Gemini API Key not found. Provide `api_key` or set the `GEMINI_API_KEY` environment variable."
