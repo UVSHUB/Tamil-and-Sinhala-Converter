@@ -1,5 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sinhala-tamil-converter"
+version = "1.0.0"
+description = "A fast, modular Python package for bidirectional Sinhala and Tamil text translation and conversion."
+readme = "README.md"
+authors = [
+    { name = "Translator Project Team", email = "developer@example.com" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.9"
+keywords = ["sinhala", "tamil", "translation", "converter", "nlp", "gemini"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "google-genai>=0.1.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.3.0",
+]
+
+[project.scripts]
+st-convert = "sinhala_tamil_converter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["backend/tests"]
+pythonpath = [".", "src"]
+testpaths = ["tests", "backend/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

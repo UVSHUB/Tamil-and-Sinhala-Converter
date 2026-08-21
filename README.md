@@ -1,102 +1,121 @@
-# Real-time AI Sinhala ↔ Tamil Voice Translator
+# Sinhala ↔ Tamil Translation & Conversion Suite
 
-A production-ready, low-latency, bidirectional real-time speech-to-speech translator application. The platform converts live Sinhala speech into synthesized Tamil speech (and vice versa) utilizing the **Google Gemini Live API (Multimodal Bidirectional WebSocket)**.
-
----
-
-## 🏬 Call-Center Problem & Business Case
-
-* **Traditional Call Centers**: Require **500+ human translators** on payroll to support multi-lingual operations, costing millions of dollars annually.
-* **Target Company Reality**: Employs only **2 to 3 human translators** while the majority of staff are **local Sinhala speakers** receiving high volumes of **Tamil customer calls**.
-* **AI Solution**: Replaces massive human translator requirements by empowering local Sinhala staff to handle Tamil customer calls effortlessly in real time via an **AI-powered WebSocket translation pool**, saving immense labor costs while removing customer wait times.
+A production-grade, modular toolkit for **Sinhala ↔ Tamil** bidirectional translation. This repository provides:
+1. **`sinhala-tamil-converter` Python Package**: A clean, modular library that developers can install and import into their own Python applications in 2–3 lines.
+2. **Real-time AI Voice Translator**: FastAPI + React 19 + Gemini Live WebSocket streaming platform.
+3. **Asterisk Telephony AudioSocket Bridge**: Real-time SIP telephony speech-to-speech translation gateway.
 
 ---
 
-## ⚡ Concurrent Socket Pool Architecture (10x Parallel Channels)
+## 📦 Python Package (`sinhala-tamil-converter`)
 
-To ensure zero call blocking during high-volume periods, the backend implements a **10-Channel Concurrent WebSocket Pool**:
-* **Channel Pool A (10 Sockets)**: Dedicated Sinhala $\rightarrow$ Tamil AI translation streams for local agent speech.
-* **Channel Pool B (10 Sockets)**: Dedicated Tamil $\rightarrow$ Sinhala AI translation streams for incoming customer speech.
-* **Total Capacity**: 20 parallel WebSockets per active call-center node handling 10 simultaneous multi-agent calls concurrently.
+The modular package is located under `src/sinhala_tamil_converter/` and can be installed into any Python environment.
 
----
+### Installation
 
-## 🛠️ Tech Stack & Protocols
+```bash
+# Install directly in editable development mode
+pip install -e .
 
-### Frontend
-*   **React 19 & TypeScript**: Component layer and type safety.
-*   **Vite**: Fast, module-based application bundling.
-*   **Tailwind CSS**: Modern UI styling and micro-animations.
-*   **Web Audio API**: Client-side audio recording and playback interfaces.
-*   **Web Workers**: Off-thread background execution for downsampling.
-*   **WebSockets**: Bidirectional audio binary packet transport.
+# Or install with development and testing dependencies
+pip install -e ".[dev]"
+```
 
-### Backend
-*   **FastAPI & Python**: High-performance asynchronous REST and WebSocket API.
-*   **Google GenAI SDK**: Interfaces directly with Google's low-latency Gemini Live API.
-*   **asyncio**: Concurrency engine managing simultaneous client and AI audio streams.
+### ⚡ 2–3 Line Quickstart Usage
 
-### Deployment & DevOps
-*   **Docker & Docker Compose**: Containerized multi-service runtime environment.
-*   **Nginx**: High-performance reverse proxy for routing static assets and handling WebSocket protocol upgrades.
-*   **GitHub Workflows**: Automated linting, testing, and continuous integration.
+#### 1. Convenience Translation Functions
+```python
+from sinhala_tamil_converter import translate_sinhala_to_tamil, translate_tamil_to_sinhala
+
+# Translate Sinhala to Tamil
+tamil_text = translate_sinhala_to_tamil("ආයුබෝවන්, ඔබට කොහොමද?")
+print(tamil_text)  # வணக்கம், நீங்கள் எப்படி இருக்கிறீர்கள்?
+
+# Translate Tamil to Sinhala
+sinhala_text = translate_tamil_to_sinhala("வணக்கம், நீங்கள் எப்படி இருக்கிறீர்கள்?")
+print(sinhala_text)  # ආයුබෝවන්, ඔබට කොහොමද?
+```
+
+#### 2. Auto-Detection & Translation
+```python
+from sinhala_tamil_converter import auto_translate
+
+result = auto_translate("සුභ උදෑසනක්")
+print(f"[{result.source_language} -> {result.target_language}]: {result.text}")
+# [sinhala -> tamil]: காலை வணக்கம்
+```
+
+#### 3. Object-Oriented Client (Custom API Key / Async / Batch)
+```python
+import asyncio
+from sinhala_tamil_converter import SinhalaTamilConverter
+
+async def main():
+    converter = SinhalaTamilConverter(api_key="YOUR_GEMINI_API_KEY")
+    results = await converter.batch_translate_async(
+        ["ස්තූතියි", "සුභ රාත්‍රියක්"],
+        source="sinhala",
+        target="tamil"
+    )
+    for res in results:
+        print(res.text)
+
+asyncio.run(main())
+```
+
+#### 4. Command-Line Interface (CLI)
+Once installed, use `st-convert` directly in your terminal:
+```bash
+st-convert "ආයුබෝවන්" --target tamil
+st-convert "வணக்கம்" --target sinhala
+```
 
 ---
 
 ## 📁 Repository Folder Tree
 
-The directory layout isolates client-side assets, background audio downsampling workers, server stream orchestrators, and Nginx proxy setups:
-
 ```text
 .
-├── .github/workflows/          # CI/CD pipelines
-├── backend/
-│   ├── api/                    # FastAPI REST routing
-│   ├── audio/                  # Audio normalization handlers
-│   ├── config/                 # Pydantic Settings loaders
-│   ├── database/               # Database integration stubs
-│   ├── gemini/                 # Gemini Live WebSocket Client
-│   ├── logger/                 # Structured log generation
-│   ├── middleware/             # CORS and rate-limiting scripts
-│   ├── models/                 # DB models definitions
-│   ├── schemas/                # JSON Pydantic data schemas
-│   ├── services/               # Core business orchestration layers
-│   ├── tests/                  # Pytest unit and integration files
-│   ├── utils/                  # Server-side utility scripts
-│   ├── websocket/              # Client socket managers
-│   ├── Dockerfile              # Backend Multi-stage build
-│   └── main.py                 # FastAPI Uvicorn starter
-├── docker/
-│   └── nginx/                  # Nginx proxy mapping
-├── docs/                       # API and architectural designs
-├── frontend/
-│   ├── src/
-│   │   ├── assets/             # Brand logos and styling icons
-│   │   ├── audio/              # Downsampling scripts
-│   │   ├── components/         # Reusable UI component directories
-│   │   ├── context/            # React global translation state provider
-│   │   ├── hooks/              # Audio/WS orchestration hooks
-│   │   ├── layouts/            # General grid layouts structures
-│   │   ├── pages/              # Main application panels (TranslatorPage)
-│   │   ├── services/           # Fetch APIs utilities
-│   │   ├── styles/             # Global Tailwind layers
-│   │   ├── types/              # Type safety interfaces
-│   │   ├── utils/              # Client math helper functions
-│   │   ├── websocket/          # Reconnecting WebSocket client
-│   │   └── workers/            # Downsampler Web Worker threads
-│   ├── Dockerfile              # SPA hosting on Nginx base
-│   ├── package.json            # Node modules profile
-│   └── vite.config.ts          # Vite asset targets
-├── scripts/                    # Development helper bash tools
-├── .env.example                # Base local configuration rules
-├── .gitignore                  # Git checkin ignores
-├── docker-compose.yml          # Container stack configurer
-└── requirements.txt            # Python environments setup lists
+├── pyproject.toml                  # PEP 621 Python package & build metadata
+├── setup.py                        # Fallback setup configuration
+├── requirements.txt                # Core backend & library dependencies
+├── requirements-dev.txt            # Dev/testing dependencies (pytest, ruff)
+├── src/
+│   └── sinhala_tamil_converter/     # 📦 Modular Python Library
+│       ├── __init__.py             # Exports: translate_sinhala_to_tamil, auto_translate, etc.
+│       ├── converter.py            # Core SinhalaTamilConverter class
+│       ├── models.py               # Language enum & TranslationResult model
+│       ├── exceptions.py           # Custom exception hierarchy
+│       ├── cli.py                  # CLI runner (st-convert)
+│       └── backends/               # Translation backend providers
+│           ├── base.py             # Abstract Base Backend interface
+│           └── gemini.py           # Google GenAI / Gemini backend
+├── tests/                          # Package unit test suite
+│   └── test_converter.py           # Tests for translation, detection, batch & async
+├── examples/                       # Quickstart Python example scripts
+│   └── quickstart.py
+├── backend/                        # FastAPI WebSocket & REST Server
+│   ├── asterisk/                   # Asterisk AudioSocket bridge
+│   ├── config/                     # Settings & environment loaders
+│   ├── websocket/                  # Stream & Auto-stream WebSocket handlers
+│   └── main.py                     # FastAPI entry point
+├── frontend/                       # React 19 + Vite + Tailwind Frontend
+├── docker/                         # Docker & Asterisk PBX configurations
+└── docker-compose.yml
 ```
 
 ---
 
-## 👥 Student & Role Responsibilities
+## 🧪 Running Unit Tests
+
+```bash
+# Run all package and backend test suites
+pytest
+```
+
+---
+
+## 👥 Architecture & Team Distribution
 
 To ensure efficient workspace distribution, responsibilities are divided into three areas:
 
@@ -171,7 +190,7 @@ npm run dev
 ```
 Open browser to `http://localhost:5173`.
 
-### 3. Running with Docker Compose (Recommended)
+### 4. Running with Docker Compose (Recommended)
 Run the entire production stack (FastAPI Backend, React Nginx Frontend, and Nginx proxy balancer) with a single command:
 ```bash
 npm run docker:up
@@ -185,45 +204,36 @@ npm run docker:down
 
 ---
 
-## 🔒 WebSocket Data Exchange Protocols
+## 🏬 Real-Time Voice Translator Application
 
-All communication during a live translation session is executed over the single WebSocket endpoint: `ws://localhost/ws/translate`.
+A production-ready, low-latency, bidirectional real-time speech-to-speech translator application powered by the **Google Gemini Live API (Multimodal Bidirectional WebSocket)**.
 
-### 1. Client to Server (Inbound Frames)
-*   **Binary stream (Audio Frame)**: Raw Int16 mono PCM audio chunks downsampled to 16kHz.
-*   **JSON Command Frame**:
-    ```json
-    {
-      "type": "update_config",
-      "payload": {
-        "source_language": "sinhala",
-        "target_language": "tamil",
-        "voice_synthesis_enabled": true
-      }
-    }
-    ```
+### Local Development Run
 
-### 2. Server to Client (Outbound Responses)
-*   **Binary stream (Audio Playback)**: Synthesized target language audio stream returned in linear PCM to the client speaker.
-*   **JSON Transcription Frame**:
-    ```json
-    {
-      "type": "transcription",
-      "payload": {
-        "speaker": "source",
-        "language": "sinhala",
-        "text": "ආයුබෝවන්"
-      }
-    }
-    ```
-*   **JSON Translation Frame**:
-    ```json
-    {
-      "type": "translation",
-      "payload": {
-        "speaker": "ai",
-        "language": "tamil",
-        "text": "வணக்கம்"
-      }
-    }
-    ```
+Ensure Python 3.11+ and Node 20+ are installed.
+
+1. **Configure Environment Variables**:
+   ```bash
+   cp .env.example .env
+   # Edit .env and set GEMINI_API_KEY
+   ```
+
+2. **Start Backend & Frontend**:
+   ```bash
+   # Backend (Port 8000)
+   npm run dev:backend
+
+   # Frontend (Port 5173)
+   cd frontend && npm install && npm run dev
+   ```
+
+3. **Running with Docker Compose**:
+   ```bash
+   npm run docker:up
+   ```
+
+---
+
+## 📞 Asterisk PBX Telephony Integration
+
+The platform includes built-in **Asterisk PBX integration**, allowing phone callers (SIP softphones or IP desk phones) to dial extension `8000` to translate live speech between Sinhala and Tamil in real time.

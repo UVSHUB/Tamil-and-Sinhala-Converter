@@ -59,3 +59,39 @@ services:
     depends_on:
       - frontend
       - backend
+
+  # ----------------------------------------------------------------------------
+  # AudioSocket Bridge: Bridges Asterisk TCP AudioSocket to Backend WebSockets
+  # ----------------------------------------------------------------------------
+  audiosocket-bridge:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: translator-audiosocket-bridge
+    restart: unless-stopped
+    command: python -m backend.asterisk.audiosocket_bridge
+    ports:
+      - "9092:9092"
+    environment:
+      - AUDIOSOCKET_HOST=0.0.0.0
+      - AUDIOSOCKET_PORT=9092
+      - BACKEND_WS_URL=ws://backend:8000/ws/translate-auto?voice=Aoede&room=asterisk_phone
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - backend
+
+  # ----------------------------------------------------------------------------
+  # Asterisk PBX: Handles SIP Phone Calls and Routes Audio via AudioSocket
+  # ----------------------------------------------------------------------------
+  asterisk:
+    build:
+      context: ./docker/asterisk
+      dockerfile: Dockerfile
+    container_name: translator-asterisk
+    restart: unless-stopped
+    ports:
+      - "5060:5060/udp"
+      - "10000-10099:10000-10099/udp"
+    depends_on:
+      - audiosocket-bridge
+
