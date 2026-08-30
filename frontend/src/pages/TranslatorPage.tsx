@@ -136,6 +136,13 @@ export default function TranslatorPage() {
       const centerY = height / 2;
       const maxBarHeight = height * 0.85;
 
+      // Calculate maximum amplitude to detect if someone is actually speaking
+      let maxAmplitude = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        if (dataArray[i] > maxAmplitude) maxAmplitude = dataArray[i];
+      }
+      const isSpeaking = maxAmplitude > 15; // Noise floor threshold
+
       ctx.lineCap = 'round';
       ctx.lineWidth = barWidth;
 
@@ -147,8 +154,8 @@ export default function TranslatorPage() {
 
         let barHeight = 0;
 
-        if (sessionState === 'IDLE' || sessionState === 'ERROR') {
-          // Subtle idle ambient ripple
+        if (sessionState === 'IDLE' || sessionState === 'ERROR' || (sessionState === 'AI_LISTENING' && !isSpeaking)) {
+          // Subtle idle ambient ripple during silence or standby
           barHeight = 4 + Math.sin(phase + i * 0.25) * 3;
         } else if (sessionState === 'AI_THINKING') {
           // Smooth loading wave pattern
