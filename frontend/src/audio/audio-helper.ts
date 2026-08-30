@@ -17,12 +17,32 @@ class AudioRecorderProcessor extends AudioWorkletProcessor {
     // Resample ratio: how many input samples per 1 output sample
     this._ratio = this._inputRate / this._targetRate;
     this._position = 0;
+    this._hangover = 0;
   }
 
   process(inputs, outputs, parameters) {
     const input = inputs[0];
     if (input && input.length > 0) {
       const channelData = input[0]; // Mono channel 0
+      
+      // WebRTC DSP Preprocessor (Noise Gate)
+      // Calculate Root Mean Square (RMS) volume
+      let sumSquares = 0;
+      for (let i = 0; i < channelData.length; i++) {
+        sumSquares += channelData[i] * channelData[i];
+      }
+      const rms = Math.sqrt(sumSquares / channelData.length);
+      
+      // If volume is below threshold (ambient noise), stop sending packets
+      if (rms < 0.005) {
+        if (this._hangover > 0) {
+          this._hangover--;
+        } else {
+          return true; // Drop packet, don't send to WebSocket
+        }
+      } else {
+        this._hangover = 15; // Keep sending for ~15 frames after speech ends (hangover)
+      }
       
       // If sample rate matches target, convert directly
       if (Math.abs(this._ratio - 1.0) < 0.001) {
