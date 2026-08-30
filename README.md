@@ -211,6 +211,10 @@ npm run docker:down
 
 A production-ready, low-latency, bidirectional real-time speech-to-speech translator application powered by the **Google Gemini Live API (Multimodal Bidirectional WebSocket)**.
 
+### ✨ New Features
+*   **Active Noise Gate (DSP):** Built-in WebRTC AudioWorklet noise suppression prevents ambient room static from accidentally triggering AI translation sessions.
+*   **Smart Speech Visualizer:** The UI waveform intelligently detects the human voice frequency floor, remaining in a smooth idle state until active speech is recognized.
+
 ### Local Development Run
 
 Ensure Python 3.11+ and Node 20+ are installed.
