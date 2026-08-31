@@ -4,8 +4,9 @@ class Settings(BaseSettings):
     # Google Gemini Live API Authentication Key
     GEMINI_API_KEY: str = ""
     
-    # Gemini AI model to target for real-time live content generation
-    GEMINI_MODEL: str = "gemini-3.6-flash"
+    # Gemini Live model for real-time audio translation.
+    # Use a live model instead of a general text model, or Gemini may choose unrelated output languages.
+    GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
     
     # Backend local logger configurations
     LOG_LEVEL: str = "INFO"

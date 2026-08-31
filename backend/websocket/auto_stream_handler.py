@@ -29,6 +29,26 @@ logger = logging.getLogger("backend")
 
 _CODE_LANG = {"si": "Sinhala", "ta": "Tamil", "en": "English"}
 _OPPOSITE   = {"ta": "si", "si": "ta", "en": "si"}
+_FORCE_TARGET = "ta"
+
+
+def _build_companion_instruction(source_lang: str, target_lang: str, history: list[dict[str, str]] | None = None) -> str:
+    """Build a strict Tamil-only translation instruction for the live bridge."""
+    recent_context = ""
+    if history:
+        recent_lines = [f"{item['speaker']}: {item['text']}" for item in history[-6:]]
+        recent_context = "\nRecent conversation context:\n" + "\n".join(recent_lines) + "\n"
+
+    return (
+        "You are a real-time Sinhala-Tamil translation engine. "
+        f"Translate spoken {source_lang} into {target_lang} only. "
+        "Do not translate into any other language. "
+        "Do not act as a general AI assistant, do not ask questions, do not explain, and do not add commentary. "
+        "Output only the translated text in Tamil with no extra filler. "
+        "If the user speaks in Sinhala or Tamil, output Tamil only. "
+        "Keep the translation accurate and natural. "
+        f"{recent_context}"
+    )
 
 
 def _detect_language(text: str) -> str | None:
@@ -57,14 +77,20 @@ def _detect_language(text: str) -> str | None:
     return None
 
 
-def _make_config(target_code: str) -> types.LiveConnectConfig:
-    """
-    Build a translate LiveConnectConfig for the given target language.
-    echo_target_language=True is critical so input_transcription always
-    arrives even when the user speaks in the target language.
-    """
+def _make_config(target_code: str, history: list[dict[str, str]] | None = None) -> types.LiveConnectConfig:
+    """Build a Tamil-only translation LiveConnectConfig for the active route."""
+    target_code = _FORCE_TARGET
+    target_lang = _CODE_LANG[target_code]
+    source_lang = "Sinhala or Tamil"
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
+        system_instruction=types.Content(
+            parts=[
+                types.Part.from_text(
+                    text=_build_companion_instruction(source_lang, target_lang, history)
+                )
+            ]
+        ),
         translation_config=types.TranslationConfig(
             target_language_code=target_code,
             echo_target_language=True,
@@ -102,8 +128,9 @@ async def handle_auto_translation_stream(
 
     # State for this client
     state = {
-        "active": "ta",          # Assume Sinhala input initially (output Tamil)
+        "active": _FORCE_TARGET,
         "last_notified": None,
+        "history": [],
     }
 
     queue_ta: asyncio.Queue = asyncio.Queue(maxsize=300)
@@ -129,6 +156,7 @@ async def handle_auto_translation_stream(
                     chunk = msg["bytes"]
                     if not queue_ta.full():
                         queue_ta.put_nowait(chunk)
+                    # Force Tamil-only output for this app mode.
                     if not queue_si.full():
                         queue_si.put_nowait(chunk)
         except (WebSocketDisconnect, RuntimeError):
@@ -144,7 +172,11 @@ async def handle_auto_translation_stream(
     async def run_session(target_code: str, in_queue: asyncio.Queue):
         source_lang = _CODE_LANG[_OPPOSITE[target_code]]
         target_lang = _CODE_LANG[target_code]
-        config = _make_config(target_code)
+        # Force all output to Tamil for this app mode.
+        if target_code != _FORCE_TARGET:
+            target_code = _FORCE_TARGET
+        target_lang = _CODE_LANG[_FORCE_TARGET]
+        config = _make_config(target_code, state["history"])
 
         while not client_disconnected.is_set():
             try:
@@ -184,7 +216,11 @@ async def handle_auto_translation_stream(
 
                                 # ── Transcription & Lang Detection ────────────
                                 if sc.input_transcription and sc.input_transcription.text:
-                                    transcript = sc.input_transcription.text
+                                    transcript = sc.input_transcription.text.strip()
+                                    if transcript:
+                                        state["history"].append({"speaker": "user", "text": transcript})
+                                        if len(state["history"]) > 12:
+                                            state["history"] = state["history"][-12:]
                                     detected = _detect_language(transcript)
 
                                     if detected is not None:
@@ -229,11 +265,16 @@ async def handle_auto_translation_stream(
 
                                 # ── Broadcast translation text to both speaker and listener ──
                                 if sc.output_transcription and sc.output_transcription.text:
+                                    ai_text = sc.output_transcription.text.strip()
+                                    if ai_text:
+                                        state["history"].append({"speaker": "ai", "text": ai_text})
+                                        if len(state["history"]) > 12:
+                                            state["history"] = state["history"][-12:]
                                     trans_payload = {
                                         "type": "translation",
                                         "payload": {
                                             "speaker": "ai",
-                                            "text": sc.output_transcription.text,
+                                            "text": ai_text,
                                         },
                                     }
                                     await safe_send_json(trans_payload)

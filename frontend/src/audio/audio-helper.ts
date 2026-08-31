@@ -33,15 +33,16 @@ class AudioRecorderProcessor extends AudioWorkletProcessor {
       }
       const rms = Math.sqrt(sumSquares / channelData.length);
       
-      // If volume is below threshold (ambient noise), stop sending packets
-      if (rms < 0.005) {
+      // Lower the silence threshold so quiet but valid speech is not discarded.
+      // This is intentionally more permissive for live translation use cases.
+      if (rms < 0.0015) {
         if (this._hangover > 0) {
           this._hangover--;
         } else {
           return true; // Drop packet, don't send to WebSocket
         }
       } else {
-        this._hangover = 15; // Keep sending for ~15 frames after speech ends (hangover)
+        this._hangover = 10; // Keep sending briefly after speech ends.
       }
       
       // If sample rate matches target, convert directly

@@ -1,6 +1,7 @@
 """Unit tests for Sinhala-Tamil converter package."""
 
 import pytest
+from backend.websocket.auto_stream_handler import _build_companion_instruction
 from sinhala_tamil_converter import (
     Language,
     SinhalaTamilConverter,
@@ -106,6 +107,20 @@ def test_translate_empty_error(mock_converter):
 def test_translate_failure(mock_converter):
     with pytest.raises(TranslationAPIError):
         mock_converter.translate("FAIL text", source="sinhala", target="tamil")
+
+
+def test_build_companion_instruction():
+    history = [
+        {"speaker": "user", "text": "සුභ උදෑසනක්"},
+        {"speaker": "ai", "text": "காலை வணக்கம்"},
+    ]
+    prompt = _build_companion_instruction("Sinhala", "Tamil", history)
+
+    assert "translation engine" in prompt.lower()
+    assert "output only the translated text in tamil" in prompt.lower()
+    assert "do not translate into any other language" in prompt.lower()
+    assert "context" in prompt.lower()
+    assert "සුභ උදෑසනක්" in prompt
 
 
 @pytest.mark.asyncio

@@ -14,7 +14,8 @@ function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
     rms += val * val;
   }
   rms = Math.sqrt(rms / SIZE);
-  if (rms < 0.015) return -1;
+  // Lower the sensitivity threshold so normal speech isn't rejected.
+  if (rms < 0.003) return -1;
 
   let r1 = 0;
   let r2 = SIZE - 1;
@@ -50,7 +51,8 @@ function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
 
   if (maxpos !== -1) {
     const pitch = sampleRate / maxpos;
-    if (pitch >= 70 && pitch <= 400) return pitch;
+    // Accept a wider human-voice range so quieter voices can still register.
+    if (pitch >= 50 && pitch <= 500) return pitch;
   }
   return -1;
 }
@@ -371,7 +373,12 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
       });
       mediaStreamRef.current = stream;
       addLog('Microphone access granted.');
@@ -612,9 +619,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
 }
 
 /**
- * Convenience hook for auto-detect bidirectional Sinhala <-> Tamil translation.
- * Connects to /ws/translate-auto — no manual language selection needed.
+ * Tamil-only voice translation mode for the app's current requirement.
+ * This keeps the session pinned to Sinhala input -> Tamil output and avoids
+ * the bidirectional auto-detect drift that can produce wrong languages.
  */
 export function useAutoStream() {
-  return useAudioStream('Sinhala', 'Tamil', true);
+  return useAudioStream('Sinhala', 'Tamil', false);
 }
