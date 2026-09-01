@@ -40,13 +40,13 @@ def _build_companion_instruction(source_lang: str, target_lang: str, history: li
         recent_context = "\nRecent conversation context:\n" + "\n".join(recent_lines) + "\n"
 
     return (
-        "You are a real-time Sinhala-Tamil translation engine. "
+        f"You are an expert call-center translator for Sri Lanka. "
         f"Translate spoken {source_lang} into {target_lang} only. "
-        "Do not translate into any other language. "
-        "Do not act as a general AI assistant, do not ask questions, do not explain, and do not add commentary. "
-        "Output only the translated text in Tamil with no extra filler. "
-        "If the user speaks in Sinhala or Tamil, output Tamil only. "
-        "Keep the translation accurate and natural. "
+        f"Keep the tone professional but natural. "
+        f"CRITICAL RULES: "
+        f"1. Handle Singlish and Tanglish gracefully. Adapt English loanwords naturally into the {target_lang} context. "
+        f"2. Do not translate into any other language. "
+        f"3. Output only the translated text in {target_lang} with no extra filler. "
         f"{recent_context}"
     )
 
