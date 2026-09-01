@@ -141,7 +141,7 @@ export default function TranslatorPage() {
       for (let i = 0; i < dataArray.length; i++) {
         if (dataArray[i] > maxAmplitude) maxAmplitude = dataArray[i];
       }
-      const isSpeaking = maxAmplitude > 8; // Lower noise floor so quiet speech still appears active
+      const isSpeaking = maxAmplitude > 40; // INCREASED Noise floor threshold for louder environments
 
       ctx.lineCap = 'round';
       ctx.lineWidth = barWidth;
