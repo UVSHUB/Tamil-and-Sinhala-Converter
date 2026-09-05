@@ -1,5 +1,11 @@
 import unittest
-from backend.websocket.auto_stream_handler import _detect_language, _make_config, _build_companion_instruction
+from backend.websocket.auto_stream_handler import (
+    _detect_language,
+    _make_config,
+    _build_companion_instruction,
+    _build_live_interpreter_instruction,
+    _make_live_interpreter_config,
+)
 
 class TestBidirectionalAutoStream(unittest.TestCase):
     def test_detect_sinhala(self):
@@ -38,5 +44,26 @@ class TestBidirectionalAutoStream(unittest.TestCase):
         self.assertIn("Tamil", instr)
         self.assertIn("Sinhala", instr)
 
+    def test_make_live_interpreter_config(self):
+        config = _make_live_interpreter_config(voice="Aoede")
+        self.assertEqual(config.response_modalities, ["AUDIO"])
+        self.assertEqual(config.speech_config.voice_config.prebuilt_voice_config.voice_name, "Aoede")
+        self.assertEqual(config.realtime_input_config.automatic_activity_detection.silence_duration_ms, 150)
+        instr = config.system_instruction.parts[0].text
+        self.assertIn("Sinhala", instr)
+        self.assertIn("Tamil", instr)
+        self.assertIn("Singlish", instr)
+        self.assertIn("Tanglish", instr)
+
+    def test_live_interpreter_instruction_history(self):
+        history = [
+            {"speaker": "user", "text": "Hello"},
+            {"speaker": "ai", "text": "Vanakkam"},
+        ]
+        instr = _build_live_interpreter_instruction(history)
+        self.assertIn("Recent conversation context:", instr)
+        self.assertIn("Vanakkam", instr)
+
 if __name__ == "__main__":
     unittest.main()
+
