@@ -297,9 +297,9 @@ export default function TranslatorPage() {
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
               SinTam
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold uppercase tracking-wider">Live</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold uppercase tracking-wider">BPO Live</span>
             </h1>
-            <p className="text-[10px] text-slate-500">Real-Time Voice Translator</p>
+            <p className="text-[10px] text-slate-400">Bidirectional Sinhala ⇄ Tamil Call-Center Bridge</p>
           </div>
         </div>
 
@@ -307,7 +307,7 @@ export default function TranslatorPage() {
           {/* Connection pill */}
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all ${isConnected ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border border-slate-700 text-slate-500'}`}>
             <Wifi className={`h-3 w-3 ${isConnected ? 'animate-pulse' : ''}`} />
-            {isConnected ? 'Live' : 'Offline'}
+            {isConnected ? 'Call Active' : 'Offline'}
           </div>
           <button onClick={toggleMute} className={`p-1.5 rounded-lg border transition-all ${isMuted ? 'bg-rose-500/15 border-rose-500/30 text-rose-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`} title={isMuted ? 'Unmute' : 'Mute'}>
             {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
@@ -328,38 +328,38 @@ export default function TranslatorPage() {
       <div className="flex justify-center px-5 py-3 shrink-0">
         <div className="flex items-center gap-3 bg-slate-900 border border-slate-700/60 rounded-2xl px-5 py-3 shadow-xl shadow-black/30 w-full max-w-lg">
           {/* Auto mode badge */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-extrabold uppercase tracking-widest shrink-0">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-extrabold uppercase tracking-widest shrink-0">
             <Zap className="h-2.5 w-2.5" />
-            Auto
+            BPO Auto
           </div>
 
           {/* Detected source */}
           <div className="flex-1 flex flex-col items-center">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-400 mb-0.5">Speaking</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-400 mb-0.5">Caller Speech</span>
             <span className={`text-sm font-extrabold transition-all duration-500 ${
-              detectedSourceLang ? 'text-white' : 'text-slate-600 animate-pulse'
+              detectedSourceLang ? 'text-white' : 'text-slate-400'
             }`}>
-              {detectedSourceLang ?? 'Detecting...'}
+              {detectedSourceLang ?? 'Sinhala'}
             </span>
           </div>
 
           {/* Arrow */}
           <div className="flex flex-col items-center gap-0.5">
             <div className="flex items-center gap-1 text-slate-500">
-              <div className="h-px w-6 bg-gradient-to-r from-indigo-500/50 to-emerald-500/50" />
-              <span className="text-emerald-400 text-sm font-bold">→</span>
-              <div className="h-px w-6 bg-gradient-to-r from-emerald-500/50 to-indigo-500/50" />
+              <div className="h-px w-5 bg-gradient-to-r from-indigo-500/50 to-emerald-500/50" />
+              <span className="text-emerald-400 text-sm font-bold">⇄</span>
+              <div className="h-px w-5 bg-gradient-to-r from-emerald-500/50 to-indigo-500/50" />
             </div>
-            <span className="text-[8px] uppercase tracking-wider text-slate-600 font-bold">Live</span>
+            <span className="text-[8px] uppercase tracking-wider text-emerald-400/80 font-extrabold">Bidirectional</span>
           </div>
 
           {/* Detected target */}
           <div className="flex-1 flex flex-col items-center">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400 mb-0.5">Translating to</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400 mb-0.5">Agent Speech</span>
             <span className={`text-sm font-extrabold transition-all duration-500 ${
-              detectedTargetLang ? 'text-white' : 'text-slate-600 animate-pulse'
+              detectedTargetLang ? 'text-white' : 'text-slate-400'
             }`}>
-              {detectedTargetLang ?? 'Detecting...'}
+              {detectedTargetLang ?? 'Tamil'}
             </span>
           </div>
         </div>
@@ -462,9 +462,14 @@ export default function TranslatorPage() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-500 font-medium tracking-wide">
-              {sessionState === 'IDLE' ? 'Tap to start' : 'Tap to stop'}
-            </p>
+            <div className="flex flex-col items-center gap-1 text-center">
+              <p className="text-xs text-slate-400 font-medium tracking-wide">
+                {sessionState === 'IDLE' ? 'Tap to connect live BPO call bridge' : 'Listening... Speak in Sinhala or Tamil'}
+              </p>
+              <span className="text-[10px] text-slate-600 font-semibold">
+                Auto-translates between customer and agent in real-time
+              </span>
+            </div>
           </div>
 
           {/* Bottom: clear + actions */}
