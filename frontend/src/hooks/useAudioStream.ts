@@ -143,7 +143,12 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     aiAnalyserRef.current.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
-    if (nextPlaybackTimeRef.current < now) nextPlaybackTimeRef.current = now;
+    if (nextPlaybackTimeRef.current < now) {
+      nextPlaybackTimeRef.current = now;
+    } else if (nextPlaybackTimeRef.current - now > 0.25) {
+      // Clamp playback drift: prevents artificial audio queuing delay
+      nextPlaybackTimeRef.current = now + 0.05;
+    }
     source.start(nextPlaybackTimeRef.current);
     nextPlaybackTimeRef.current += audioBuffer.duration;
 

@@ -13,11 +13,11 @@ class AudioRecorderProcessor extends AudioWorkletProcessor {
     // Target sample rate is always 16000 for Gemini Live API
     this._targetRate = 16000;
     this._inputRate = options.processorOptions?.inputSampleRate || 16000;
-    this._buffer = [];
     // Resample ratio: how many input samples per 1 output sample
     this._ratio = this._inputRate / this._targetRate;
-    this._position = 0;
     this._hangover = 0;
+    this._chunkSize = 1600; // 100ms chunks (1600 samples at 16kHz) for ultra-low latency & clean streaming
+    this._accumulated = [];
   }
 
   process(inputs, outputs, parameters) {
@@ -25,61 +25,57 @@ class AudioRecorderProcessor extends AudioWorkletProcessor {
     if (input && input.length > 0) {
       const channelData = input[0]; // Mono channel 0
       
-      // WebRTC DSP Preprocessor (Noise Gate)
-      // Calculate Root Mean Square (RMS) volume
+      // Fast RMS calculation for Voice Activity Detection
       let sumSquares = 0;
       for (let i = 0; i < channelData.length; i++) {
         sumSquares += channelData[i] * channelData[i];
       }
       const rms = Math.sqrt(sumSquares / channelData.length);
       
-      // If volume is below threshold (ambient noise), stop sending packets
-      // INCREASED from 0.005 to 0.025 to block loud background chatter
-      if (rms < 0.025) {
+      // Responsive threshold (0.010) catches first phoneme without clipping normal speaking voice
+      if (rms < 0.010) {
         if (this._hangover > 0) {
           this._hangover--;
         } else {
-          return true; // Drop packet, don't send to WebSocket
+          // If silence and leftover samples exist, flush immediately so nothing is lost
+          if (this._accumulated.length > 0) {
+            const pcmBuffer = new Int16Array(this._accumulated);
+            this.port.postMessage(pcmBuffer.buffer, [pcmBuffer.buffer]);
+            this._accumulated = [];
+          }
+          return true; // Drop silence
         }
       } else {
-        this._hangover = 20; // Keep sending for ~20 frames after speech ends (hangover)
+        this._hangover = 20; // Keep sending for ~20 frames (~50ms) hangover
       }
       
-      // If sample rate matches target, convert directly
+      // Resample directly to 16kHz and accumulate into 100ms frames
       if (Math.abs(this._ratio - 1.0) < 0.001) {
-        const length = channelData.length;
-        const pcmBuffer = new Int16Array(length);
-        for (let i = 0; i < length; i++) {
+        for (let i = 0; i < channelData.length; i++) {
           const sample = Math.max(-1.0, Math.min(1.0, channelData[i]));
-          pcmBuffer[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+          this._accumulated.push(sample < 0 ? sample * 0x8000 : sample * 0x7FFF);
         }
-        this.port.postMessage(pcmBuffer.buffer, [pcmBuffer.buffer]);
       } else {
-        // Linear interpolation resampling to 16kHz
         const inputLength = channelData.length;
         const outputLength = Math.floor(inputLength / this._ratio);
-        const pcmBuffer = new Int16Array(outputLength);
-        
         for (let i = 0; i < outputLength; i++) {
           const srcPos = i * this._ratio;
           const srcIdx = Math.floor(srcPos);
           const frac = srcPos - srcIdx;
-          
-          let sample;
+          let sample = channelData[srcIdx] || 0;
           if (srcIdx + 1 < inputLength) {
-            // Linear interpolation between adjacent samples
             sample = channelData[srcIdx] * (1 - frac) + channelData[srcIdx + 1] * frac;
-          } else {
-            sample = channelData[srcIdx] || 0;
           }
-          
           sample = Math.max(-1.0, Math.min(1.0, sample));
-          pcmBuffer[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+          this._accumulated.push(sample < 0 ? sample * 0x8000 : sample * 0x7FFF);
         }
-        
-        if (outputLength > 0) {
-          this.port.postMessage(pcmBuffer.buffer, [pcmBuffer.buffer]);
-        }
+      }
+
+      // Dispatch audio chunk when we hit 100ms (1600 samples)
+      while (this._accumulated.length >= this._chunkSize) {
+        const chunk = this._accumulated.splice(0, this._chunkSize);
+        const pcmBuffer = new Int16Array(chunk);
+        this.port.postMessage(pcmBuffer.buffer, [pcmBuffer.buffer]);
       }
     }
     return true;
