@@ -78,7 +78,7 @@ def _detect_language(text: str) -> str | None:
 
 
 def _make_config(target_code: str, history: list[dict[str, str]] | None = None) -> types.LiveConnectConfig:
-    """Build a translation LiveConnectConfig for the active route (ta or si)."""
+    """Build a translation LiveConnectConfig for the active route (ta or si) [Kept for test compatibility]."""
     target_lang = _CODE_LANG[target_code]
     source_lang = _CODE_LANG[_OPPOSITE[target_code]]
     return types.LiveConnectConfig(
@@ -99,7 +99,56 @@ def _make_config(target_code: str, history: list[dict[str, str]] | None = None) 
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
-                silence_duration_ms=500,
+                silence_duration_ms=150,
+            )
+        ),
+    )
+
+
+def _build_live_interpreter_instruction(history: list[dict[str, str]] | None = None) -> str:
+    """Build high-speed bilingual interpreter instruction matching the Gemini Mobile App Live experience."""
+    recent_context = ""
+    if history:
+        recent_lines = [f"{item['speaker']}: {item['text']}" for item in history[-6:]]
+        recent_context = "\nRecent conversation context:\n" + "\n".join(recent_lines) + "\n"
+
+    return (
+        "You are an ultra-fast, real-time live bilingual voice interpreter between Sinhala and Tamil for a telephone call center.\n"
+        "Your sole task is immediate spoken translation:\n"
+        "1. When the speaker speaks in Sinhala, immediately speak the natural, fluent translation in Tamil.\n"
+        "2. When the speaker speaks in Tamil, immediately speak the natural, fluent translation in Sinhala.\n"
+        "3. Output ONLY the translated speech. Never repeat the original words.\n"
+        "4. Never add commentary, explanations, greetings, or conversational filler like 'Sure', 'Understood', or 'Translation:'.\n"
+        "5. Seamlessly handle Singlish (Sinhala mixed with English) and Tanglish (Tamil mixed with English). Adapt business and technical loanwords (e.g., 'credit card', 'account number', 'balance', 'loan', 'bill', 'PIN') naturally into the target language.\n"
+        "6. Use natural Sri Lankan conversational tone and accurate pronunciation.\n"
+        f"{recent_context}"
+    )
+
+
+def _make_live_interpreter_config(voice: str = "Aoede", history: list[dict[str, str]] | None = None) -> types.LiveConnectConfig:
+    """Build single-session ultra-low latency live bilingual interpreter config."""
+    return types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name=voice
+                )
+            )
+        ),
+        system_instruction=types.Content(
+            parts=[
+                types.Part.from_text(
+                    text=_build_live_interpreter_instruction(history)
+                )
+            ]
+        ),
+        input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                disabled=False,
+                silence_duration_ms=150,
             )
         ),
     )
@@ -111,8 +160,8 @@ async def handle_auto_translation_stream(
     room_id: str = "default",
 ) -> None:
     """
-    Handles a single client's automatic translation stream inside a room.
-    Funnels audio to two Gemini sessions, and broadcasts the output to other room members.
+    Handles real-time live bilingual Sinhala <-> Tamil voice translation via a single unified
+    Gemini Live session, matching the instant sub-second turnaround of the Gemini Mobile App.
     """
     if not settings.GEMINI_API_KEY:
         await client_ws.send_json({
@@ -125,19 +174,17 @@ async def handle_auto_translation_stream(
     model = settings.GEMINI_MODEL
     ai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-    # State for this client
     state = {
-        "active": "ta",
+        "source": "Sinhala",
+        "target": "Tamil",
         "last_notified": None,
         "history": [],
     }
 
-    queue_ta: asyncio.Queue = asyncio.Queue(maxsize=300)
-    queue_si: asyncio.Queue = asyncio.Queue(maxsize=300)
-
+    in_queue: asyncio.Queue = asyncio.Queue(maxsize=400)
     client_disconnected = asyncio.Event()
 
-    # ── Safe communication helpers ───────────────────────────────────────────
+    # ── Safe communication helper ────────────────────────────────────────────
     async def safe_send_json(payload: dict) -> bool:
         try:
             await client_ws.send_json(payload)
@@ -146,40 +193,45 @@ async def handle_auto_translation_stream(
             client_disconnected.set()
             return False
 
-    # ── Client reader: read incoming mic and push to both session queues ─────
+    # ── Client reader: continuously stream incoming audio from client ────────
     async def read_client_forever():
         try:
             while True:
                 msg = await client_ws.receive()
                 if "bytes" in msg and msg["bytes"]:
                     chunk = msg["bytes"]
-                    if not queue_ta.full():
-                        queue_ta.put_nowait(chunk)
-                    if not queue_si.full():
-                        queue_si.put_nowait(chunk)
+                    if not in_queue.full():
+                        in_queue.put_nowait(chunk)
         except (WebSocketDisconnect, RuntimeError):
             logger.info(f"Client disconnected from room {room_id}.")
         finally:
             client_disconnected.set()
-            try: queue_ta.put_nowait(None)
-            except asyncio.QueueFull: pass
-            try: queue_si.put_nowait(None)
+            try: in_queue.put_nowait(None)
             except asyncio.QueueFull: pass
 
-    # ── Session runner ───────────────────────────────────────────────────────
-    async def run_session(target_code: str, in_queue: asyncio.Queue):
-        source_lang = _CODE_LANG[_OPPOSITE[target_code]]
-        target_lang = _CODE_LANG[target_code]
-        config = _make_config(target_code, state["history"])
+    # ── Notify initial setup ─────────────────────────────────────────────────
+    await safe_send_json({
+        "type": "lang_detected",
+        "payload": {"source": "Sinhala", "target": "Tamil"},
+    })
+    state["last_notified"] = "Sinhala->Tamil"
 
+    await safe_send_json({
+        "type": "status",
+        "payload": {"message": f"Connected to room '{room_id}'! Gemini Live bilingual interpreter active."}
+    })
+
+    client_reader = asyncio.create_task(read_client_forever())
+
+    # ── Single unified Gemini Live Interpreter Session ───────────────────────
+    async def run_live_bridge():
+        config = _make_live_interpreter_config(voice=voice, history=state["history"])
         while not client_disconnected.is_set():
             try:
-                async with ai_client.aio.live.connect(
-                    model=model, config=config
-                ) as session:
-                    logger.info(f"Session [{target_code}] opened for client in room: {room_id}")
+                async with ai_client.aio.live.connect(model=model, config=config) as session:
+                    logger.info(f"Unified Gemini Live interpreter active for room: {room_id}")
 
-                    # Forward audio
+                    # 1. Forward microphone audio chunks to Gemini Live
                     async def forward_audio():
                         try:
                             while not client_disconnected.is_set():
@@ -196,9 +248,9 @@ async def handle_auto_translation_stream(
                         except asyncio.CancelledError:
                             pass
                         except Exception as ex:
-                            logger.error(f"[{target_code}] forward_audio error: {ex}")
+                            logger.error(f"forward_audio error: {ex}")
 
-                    # Receive responses
+                    # 2. Receive live transcriptions and translated audio
                     async def receive_responses():
                         try:
                             async for response in session.receive():
@@ -208,76 +260,60 @@ async def handle_auto_translation_stream(
                                 if not sc:
                                     continue
 
-                                # ── Transcription & Lang Detection ────────────
+                                # ── Real-time input transcription & script detection ──
                                 if sc.input_transcription and sc.input_transcription.text:
                                     transcript = sc.input_transcription.text.strip()
                                     if transcript:
                                         state["history"].append({"speaker": "user", "text": transcript})
                                         if len(state["history"]) > 12:
                                             state["history"] = state["history"][-12:]
-                                    detected = _detect_language(transcript)
+                                        
+                                        detected = _detect_language(transcript)
+                                        if detected == "Sinhala":
+                                            state["source"], state["target"] = "Sinhala", "Tamil"
+                                        elif detected == "Tamil":
+                                            state["source"], state["target"] = "Tamil", "Sinhala"
 
-                                    if detected is not None:
-                                        if detected == source_lang:
-                                            if state["active"] != target_code:
-                                                state["active"] = target_code
-                                                logger.info(f"Lang switch detected: {detected} -> active={target_code}")
-                                        elif detected == target_lang:
-                                            if state["active"] == target_code:
-                                                state["active"] = _OPPOSITE[target_code]
-                                                logger.info(f"Yielding lang: detected={detected}, switching to {state['active']}")
+                                        notif_key = f"{state['source']}->{state['target']}"
+                                        if state["last_notified"] != notif_key:
+                                            state["last_notified"] = notif_key
+                                            notif_payload = {
+                                                "type": "lang_detected",
+                                                "payload": {"source": state["source"], "target": state["target"]},
+                                            }
+                                            await safe_send_json(notif_payload)
+                                            await manager.broadcast_json_except(notif_payload, client_ws, room_id)
 
-                                    # Broadcast lang_detected to sender and other clients in room
-                                    active_src = _CODE_LANG[_OPPOSITE[state["active"]]]
-                                    active_tgt = _CODE_LANG[state["active"]]
-                                    notif_key = f"{active_src}->{active_tgt}"
-                                    if state["last_notified"] != notif_key:
-                                        state["last_notified"] = notif_key
-                                        notif_payload = {
-                                            "type": "lang_detected",
-                                            "payload": {"source": active_src, "target": active_tgt},
-                                        }
-                                        await safe_send_json(notif_payload)
-                                        await manager.broadcast_json_except(notif_payload, client_ws, room_id)
-
-                                    # Send user transcription to sender and other clients (if this session is active)
-                                    if state["active"] == target_code:
                                         transcript_payload = {
                                             "type": "transcription",
                                             "payload": {
                                                 "speaker": "user",
                                                 "text": transcript,
-                                                "detected_lang": detected,
+                                                "detected_lang": detected or state["source"],
                                             },
                                         }
                                         await safe_send_json(transcript_payload)
                                         await manager.broadcast_json_except(transcript_payload, client_ws, room_id)
 
-                                # Gate: only broadcast translations from the active session
-                                if state["active"] != target_code:
-                                    continue
-
-                                # ── Broadcast translation text to both speaker and listener ──
+                                # ── Real-time output translation transcription ────────
                                 if sc.output_transcription and sc.output_transcription.text:
                                     ai_text = sc.output_transcription.text.strip()
                                     if ai_text:
                                         state["history"].append({"speaker": "ai", "text": ai_text})
                                         if len(state["history"]) > 12:
                                             state["history"] = state["history"][-12:]
-                                    trans_payload = {
-                                        "type": "translation",
-                                        "payload": {
-                                            "speaker": "ai",
-                                            "text": ai_text,
-                                        },
-                                    }
-                                    await safe_send_json(trans_payload)
-                                    await manager.broadcast_json_except(trans_payload, client_ws, room_id)
+                                        
+                                        trans_payload = {
+                                            "type": "translation",
+                                            "payload": {
+                                                "speaker": "ai",
+                                                "text": ai_text,
+                                            },
+                                        }
+                                        await safe_send_json(trans_payload)
+                                        await manager.broadcast_json_except(trans_payload, client_ws, room_id)
 
-                                # ── Broadcast translated audio bytes ──
-                                # If only 1 device is in the room, send audio to the speaker themselves.
-                                # If 2 or more devices are in the room, send it ONLY to the other devices
-                                # (preventing speaker-to-mic feedback loops).
+                                # ── Live translated audio bytes streaming ──────────────
                                 if sc.model_turn:
                                     for part in sc.model_turn.parts:
                                         if part.inline_data and part.inline_data.data:
@@ -291,7 +327,7 @@ async def handle_auto_translation_stream(
                                             else:
                                                 await manager.broadcast_bytes_except(part.inline_data.data, client_ws, room_id)
 
-                                # ── Turn complete status ──────────────────────
+                                # ── Turn complete notification ────────────────────────
                                 if sc.turn_complete:
                                     turn_payload = {"type": "turn_complete", "payload": {}}
                                     await safe_send_json(turn_payload)
@@ -300,7 +336,7 @@ async def handle_auto_translation_stream(
                         except asyncio.CancelledError:
                             pass
                         except Exception as ex:
-                            logger.error(f"[{target_code}] receive_responses error: {ex}")
+                            logger.error(f"receive_responses error: {ex}")
 
                     fwd = asyncio.create_task(forward_audio())
                     rcv = asyncio.create_task(receive_responses())
@@ -314,32 +350,18 @@ async def handle_auto_translation_stream(
             except Exception as sess_err:
                 if client_disconnected.is_set():
                     return
-                logger.warning(f"[{target_code}] session error: {sess_err}. Reconnecting...")
+                logger.warning(f"Live interpreter session error: {sess_err}. Reconnecting in 1s...")
                 await asyncio.sleep(1)
 
-    # ── Notify initial setup ─────────────────────────────────────────────────
-    await safe_send_json({
-        "type": "lang_detected",
-        "payload": {"source": "Sinhala", "target": "Tamil"},
-    })
-    state["last_notified"] = "Sinhala->Tamil"
-
-    await safe_send_json({
-        "type": "status",
-        "payload": {"message": f"Connected to room '{room_id}'! Other devices in this room will receive your translation."}
-    })
-
-    client_reader = asyncio.create_task(read_client_forever())
-    session_ta    = asyncio.create_task(run_session("ta", queue_ta))
-    session_si    = asyncio.create_task(run_session("si", queue_si))
+    live_bridge = asyncio.create_task(run_live_bridge())
 
     try:
         await asyncio.wait(
-            [client_reader, session_ta, session_si],
+            [client_reader, live_bridge],
             return_when=asyncio.FIRST_COMPLETED,
         )
     finally:
-        for t in [client_reader, session_ta, session_si]:
+        for t in [client_reader, live_bridge]:
             t.cancel()
             try: await t
             except asyncio.CancelledError: pass

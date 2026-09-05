@@ -58,7 +58,7 @@ async def handle_translation_stream(
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     disabled=False,
-                    silence_duration_ms=600,
+                    silence_duration_ms=200,
                 )
             ),
         )
@@ -94,7 +94,7 @@ async def handle_translation_stream(
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     disabled=False,
-                    silence_duration_ms=500,
+                    silence_duration_ms=150,
                 )
             ),
         )
