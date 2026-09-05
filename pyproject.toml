@@ -28,6 +28,10 @@ classifiers = [
 dependencies = [
     "google-genai>=0.1.0",
     "pydantic>=2.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "websockets>=12.0",
+    "colorama>=0.4.6",
 ]
 
 [project.optional-dependencies]
@@ -40,12 +44,16 @@ dev = [
 
 [project.scripts]
 st-convert = "sinhala_tamil_converter.cli:main"
+sintam = "backend.cli:start"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["src*", "backend*", "frontend*"]
+
+[tool.setuptools.package-data]
+"*" = ["dist/**/*", "dist/*"]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "src"]
+pythonpath = [".", "src", "backend"]
 testpaths = ["tests", "backend/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
