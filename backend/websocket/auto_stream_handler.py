@@ -29,11 +29,10 @@ logger = logging.getLogger("backend")
 
 _CODE_LANG = {"si": "Sinhala", "ta": "Tamil", "en": "English"}
 _OPPOSITE   = {"ta": "si", "si": "ta", "en": "si"}
-_FORCE_TARGET = "ta"
 
 
 def _build_companion_instruction(source_lang: str, target_lang: str, history: list[dict[str, str]] | None = None) -> str:
-    """Build a strict Tamil-only translation instruction for the live bridge."""
+    """Build a professional call-center translation instruction for the live bridge."""
     recent_context = ""
     if history:
         recent_lines = [f"{item['speaker']}: {item['text']}" for item in history[-6:]]
@@ -44,7 +43,7 @@ def _build_companion_instruction(source_lang: str, target_lang: str, history: li
         f"Translate spoken {source_lang} into {target_lang} only. "
         f"Keep the tone professional but natural. "
         f"CRITICAL RULES: "
-        f"1. Handle Singlish and Tanglish gracefully. Adapt English loanwords naturally into the {target_lang} context. "
+        f"1. Handle Singlish and Tanglish gracefully. If the caller uses English loanwords (e.g., 'credit card', 'balance', 'loan', 'bill', 'account'), adapt them naturally into the {target_lang} context. "
         f"2. Do not translate into any other language. "
         f"3. Output only the translated text in {target_lang} with no extra filler. "
         f"{recent_context}"
@@ -68,9 +67,10 @@ def _detect_language(text: str) -> str | None:
     total = si + ta + en
     if total == 0:
         return None
-    if si / total >= 0.5:
+    # Prioritize native script identification
+    if si > 0 and si >= ta:
         return "Sinhala"
-    if ta / total >= 0.5:
+    if ta > 0 and ta > si:
         return "Tamil"
     if en / total >= 0.5:
         return "English"
@@ -78,10 +78,9 @@ def _detect_language(text: str) -> str | None:
 
 
 def _make_config(target_code: str, history: list[dict[str, str]] | None = None) -> types.LiveConnectConfig:
-    """Build a Tamil-only translation LiveConnectConfig for the active route."""
-    target_code = _FORCE_TARGET
+    """Build a translation LiveConnectConfig for the active route (ta or si)."""
     target_lang = _CODE_LANG[target_code]
-    source_lang = "Sinhala or Tamil"
+    source_lang = _CODE_LANG[_OPPOSITE[target_code]]
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         system_instruction=types.Content(
@@ -128,7 +127,7 @@ async def handle_auto_translation_stream(
 
     # State for this client
     state = {
-        "active": _FORCE_TARGET,
+        "active": "ta",
         "last_notified": None,
         "history": [],
     }
@@ -156,7 +155,6 @@ async def handle_auto_translation_stream(
                     chunk = msg["bytes"]
                     if not queue_ta.full():
                         queue_ta.put_nowait(chunk)
-                    # Force Tamil-only output for this app mode.
                     if not queue_si.full():
                         queue_si.put_nowait(chunk)
         except (WebSocketDisconnect, RuntimeError):
@@ -172,10 +170,6 @@ async def handle_auto_translation_stream(
     async def run_session(target_code: str, in_queue: asyncio.Queue):
         source_lang = _CODE_LANG[_OPPOSITE[target_code]]
         target_lang = _CODE_LANG[target_code]
-        # Force all output to Tamil for this app mode.
-        if target_code != _FORCE_TARGET:
-            target_code = _FORCE_TARGET
-        target_lang = _CODE_LANG[_FORCE_TARGET]
         config = _make_config(target_code, state["history"])
 
         while not client_disconnected.is_set():
