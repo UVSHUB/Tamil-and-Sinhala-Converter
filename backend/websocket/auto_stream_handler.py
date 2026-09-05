@@ -52,29 +52,22 @@ def _build_companion_instruction(source_lang: str, target_lang: str, history: li
 
 def _detect_language(text: str) -> str | None:
     """
-    Detect whether text is predominantly Sinhala, Tamil, or English by inspecting
-    Unicode script ranges.
+    Detect whether text is predominantly Sinhala or Tamil by inspecting
+    Unicode script ranges. Never emits English to keep the route strictly Sinhala <-> Tamil.
     """
-    si = ta = en = 0
+    si = ta = 0
     for ch in text:
         cp = ord(ch)
         if 0x0D80 <= cp <= 0x0DFF:
             si += 1
         elif 0x0B80 <= cp <= 0x0BFF:
             ta += 1
-        elif (0x0041 <= cp <= 0x005A) or (0x0061 <= cp <= 0x007A):
-            en += 1
-    total = si + ta + en
+    total = si + ta
     if total == 0:
-        return None
-    # Prioritize native script identification
-    if si > 0 and si >= ta:
         return "Sinhala"
     if ta > 0 and ta > si:
         return "Tamil"
-    if en / total >= 0.5:
-        return "English"
-    return None
+    return "Sinhala"
 
 
 def _make_config(target_code: str, history: list[dict[str, str]] | None = None) -> types.LiveConnectConfig:
@@ -113,14 +106,20 @@ def _build_live_interpreter_instruction(history: list[dict[str, str]] | None = N
         recent_context = "\nRecent conversation context:\n" + "\n".join(recent_lines) + "\n"
 
     return (
-        "You are an ultra-fast, real-time live bilingual voice interpreter between Sinhala and Tamil for a telephone call center.\n"
-        "Your sole task is immediate spoken translation:\n"
-        "1. When the speaker speaks in Sinhala, immediately speak the natural, fluent translation in Tamil.\n"
-        "2. When the speaker speaks in Tamil, immediately speak the natural, fluent translation in Sinhala.\n"
-        "3. Output ONLY the translated speech. Never repeat the original words.\n"
-        "4. Never add commentary, explanations, greetings, or conversational filler like 'Sure', 'Understood', or 'Translation:'.\n"
-        "5. Seamlessly handle Singlish (Sinhala mixed with English) and Tanglish (Tamil mixed with English). Adapt business and technical loanwords (e.g., 'credit card', 'account number', 'balance', 'loan', 'bill', 'PIN') naturally into the target language.\n"
-        "6. Use natural Sri Lankan conversational tone and accurate pronunciation.\n"
+        "You are an ultra-fast, real-time live bilingual voice interpreter between Sinhala and Tamil ONLY.\n"
+        "STRICT MANDATORY RULES:\n"
+        "1. STRICT LANGUAGE LOCK (NEVER SPEAK ENGLISH): Under NO circumstances speak or output English! You must ONLY speak in Tamil or Sinhala.\n"
+        "2. BIDIRECTIONAL INTERPRETATION:\n"
+        "   - When the speaker speaks in Sinhala (or Singlish): Immediately speak the translation in fluent TAMIL.\n"
+        "   - When the speaker speaks in Tamil (or Tanglish): Immediately speak the translation in fluent SINHALA.\n"
+        "   - If the speaker speaks English words, loanwords, or sentences: Immediately speak the translation in TAMIL.\n"
+        "3. ZERO FILLER & ZERO PREAMBLE:\n"
+        "   - Output ONLY the spoken translation immediately. Never repeat what the speaker said.\n"
+        "   - NEVER say conversational filler like 'Sure', 'Understood', 'Okay', 'Translation:', 'I will translate', or 'Hello'.\n"
+        "   - Complete the translation smoothly without stopping or stuttering.\n"
+        "4. NATURAL SRI LANKAN CONTEXT:\n"
+        "   - Seamlessly adapt business, banking, and technical loanwords (e.g., 'credit card', 'account number', 'balance', 'loan', 'bill', 'PIN', 'customer care') naturally into the target Sri Lankan Tamil or Sinhala.\n"
+        "   - Use authentic Sri Lankan pronunciation and polite conversational phrasing.\n"
         f"{recent_context}"
     )
 
