@@ -102,6 +102,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
   const pendingTextRef = useRef<string | null>(null);
   const nextPlaybackTimeRef = useRef<number>(0);
   const isActiveSessionRef = useRef<boolean>(false);
+  const isAiSpeakingRef = useRef<boolean>(false);
+  const aiSpeakingTimerRef = useRef<any>(null);
 
   // Always-current language/voice refs (avoid stale closures)
   const sourceLangRef = useRef<string>(sourceLang);
@@ -152,7 +154,18 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     source.start(nextPlaybackTimeRef.current);
     nextPlaybackTimeRef.current += audioBuffer.duration;
 
+    // Acoustic Echo Guard: Mark AI speaking and suppress mic streaming while audio plays
+    isAiSpeakingRef.current = true;
     setSessionState('AI_SPEAKING');
+
+    if (aiSpeakingTimerRef.current) {
+      clearTimeout(aiSpeakingTimerRef.current);
+    }
+    const msUntilEnd = Math.max(120, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 120);
+    aiSpeakingTimerRef.current = setTimeout(() => {
+      isAiSpeakingRef.current = false;
+      setSessionState('AI_LISTENING');
+    }, msUntilEnd);
   }, [isMuted]);
 
   // Close only the WebSocket without tearing down mic/audio
@@ -225,7 +238,13 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
-            setSessionState('AI_LISTENING');
+            const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
+            const msUntilEnd = Math.max(80, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 80);
+            if (aiSpeakingTimerRef.current) clearTimeout(aiSpeakingTimerRef.current);
+            aiSpeakingTimerRef.current = setTimeout(() => {
+              isAiSpeakingRef.current = false;
+              setSessionState('AI_LISTENING');
+            }, msUntilEnd);
           } else if (response.type === 'lang_detected') {
             setDetectedSourceLang(response.payload.source);
             setDetectedTargetLang(response.payload.target);
@@ -318,7 +337,13 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
-            setSessionState('AI_LISTENING');
+            const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
+            const msUntilEnd = Math.max(80, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 80);
+            if (aiSpeakingTimerRef.current) clearTimeout(aiSpeakingTimerRef.current);
+            aiSpeakingTimerRef.current = setTimeout(() => {
+              isAiSpeakingRef.current = false;
+              setSessionState('AI_LISTENING');
+            }, msUntilEnd);
           } else if (response.type === 'lang_detected') {
             setDetectedSourceLang(response.payload.source);
             setDetectedTargetLang(response.payload.target);
@@ -380,13 +405,13 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
       });
       mediaStreamRef.current = stream;
-      addLog('Microphone access granted.');
+      addLog('Microphone access granted (Acoustic Echo Cancellation active).');
       pcmBufferQueueRef.current = [];
       isWsConnectingRef.current = false;
       setSourceCaption('');
@@ -405,6 +430,12 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       workletNodeRef.current = workletNode;
 
       workletNode.port.onmessage = (event: MessageEvent) => {
+        // Acoustic Echo Guard: Suppress microphone streaming while AI is playing translated speech
+        // This prevents the speaker output from bleeding into the mic, stopping barge-in self-interruption.
+        if (isAiSpeakingRef.current) {
+          return;
+        }
+
         const pcmBuffer = event.data;
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
           socketRef.current.send(pcmBuffer);
@@ -541,6 +572,12 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     isActiveSessionRef.current = false;
     setIsRecording(false);
     setSessionState('IDLE');
+
+    if (aiSpeakingTimerRef.current) {
+      clearTimeout(aiSpeakingTimerRef.current);
+      aiSpeakingTimerRef.current = null;
+    }
+    isAiSpeakingRef.current = false;
 
     if (pitchIntervalRef.current) {
       clearInterval(pitchIntervalRef.current);
