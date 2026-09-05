@@ -30,7 +30,7 @@ def start():
             print("The frontend UI will not be served.")
             print("Please run 'npm install' and 'npm run build' inside the 'frontend' directory first.\n")
         else:
-            print(f"{Fore.GREEN}✓ Frontend package found. UI will be served on port {settings.BACKEND_PORT}.\n")
+            print(f"{Fore.GREEN}[OK] Frontend package found. UI will be served on port {settings.BACKEND_PORT}.\n")
             
         print(f"Starting server at {Fore.GREEN}http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}")
         print(f"Press {Fore.RED}Ctrl+C{Fore.RESET} to stop.\n")

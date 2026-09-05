@@ -374,15 +374,22 @@
   <div class="container">
     <header>
       <div class="badge-bar">
-        <span class="badge">🎙️ Speech-to-Speech</span>
+        <span class="badge" style="border-color: rgba(16, 185, 129, 0.4); color: #34D399;">📞 BPO Call-Center Bridge</span>
         <span class="badge purple">⚡ Gemini 2.0 Live Streaming</span>
         <span class="badge green">🛡️ WebRTC Noise Gate</span>
-        <span class="badge">🚀 1-Line CLI</span>
+        <span class="badge">🚀 1-Line CLI (`sintam`)</span>
       </div>
-      <h1>SinTam AI Voice Translator</h1>
+      <h1>SinTam BPO Voice Middleman</h1>
       <p class="subtitle">
-        Breaking linguistic barriers across Sri Lanka with sub-second, bidirectional Sinhala & Tamil voice translation designed for customer service and daily communication.
+        The real-time telephony & speech translation bridge for Sri Lankan call centers. Empowers monolingual agents to seamlessly communicate with bilingual customers — converting Sinhala to Tamil and Tamil to Sinhala in live phone calls with sub-second latency.
       </p>
+      <div style="margin-top: 20px; display: flex; justify-content: center; gap: 12px;">
+        <a href="http://localhost:8000" target="_blank">
+          <button class="btn" style="background: linear-gradient(135deg, #059669, #10B981); box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+            🚀 Open Live Web App (http://localhost:8000)
+          </button>
+        </a>
+      </div>
     </header>
 
     <!-- SECTION 1: Generated Video Player & Download -->
@@ -394,7 +401,7 @@
         </a>
       </div>
       <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 15px;">
-        Generated directly from repository code. Upload this video file to LinkedIn, Twitter/X, or YouTube to showcase the project!
+        Generated directly from repository code. Upload this video file to LinkedIn, Twitter/X, or YouTube to showcase the BPO project!
       </p>
       <div class="video-container">
         <video controls autoplay muted loop playsinline>
@@ -407,14 +414,17 @@
     <!-- SECTION 2: Live Interactive Speech Simulation -->
     <div class="showcase-card">
       <div class="section-title">
-        <h2>⚡ Interactive Simulation (Test Audio & Live Translation)</h2>
+        <h2>⚡ Live BPO Call Simulation (The Middleman in Action)</h2>
       </div>
+      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 18px;">
+        The system sits directly between the caller and the agent on the phone line, converting spoken speech dynamically to each person's preferred language:
+      </p>
 
       <div class="demo-grid">
         <!-- Sinhala Speaker -->
         <div class="speaker-box active" id="sinBox">
           <div class="speaker-header">
-            <span class="speaker-title">🇱🇰 Sinhala (Customer Speech)</span>
+            <span class="speaker-title">🇱🇰 Customer Phone (Speaking Sinhala)</span>
             <span class="status-dot"></span>
           </div>
           <div class="waveform-wrapper">
@@ -424,20 +434,20 @@
             "මට මේ බිල්පත ගැන විස්තර දැනගන්න පුළුවන්ද?"
           </div>
           <p style="font-size: 13px; color: #64748B; margin-top: 8px;">
-            Colloquial query: "Could I get details about this bill?"
+            Caller asks: "Could I get details about this bill?"
           </p>
         </div>
 
         <!-- Center arrow -->
         <div class="translation-arrow">
           <span class="arrow-icon">⇄</span>
-          <span class="latency-tag">310ms Latency</span>
+          <span class="latency-tag">310ms BPO Bridge</span>
         </div>
 
         <!-- Tamil Speaker -->
         <div class="speaker-box active" id="tamBox">
           <div class="speaker-header">
-            <span class="speaker-title">🇮🇳 Tamil (Agent Speech)</span>
+            <span class="speaker-title">🎧 Agent Headset (Receives Tamil Audio)</span>
             <span class="status-dot"></span>
           </div>
           <div class="waveform-wrapper">
@@ -447,15 +457,15 @@
             "இந்த பில் பற்றிய விவரங்களை நான் தெரிந்து கொள்ளலாமா?"
           </div>
           <p style="font-size: 13px; color: #64748B; margin-top: 8px;">
-            Polite call-center persona applied automatically
+            Agent hears Tamil voice in headset; replies in Tamil
           </p>
         </div>
       </div>
 
       <!-- Controls -->
       <div class="controls-row">
-        <button class="btn" id="btnPlayDemo">▶️ Play Speech Simulation</button>
-        <button class="btn secondary" id="btnSwitchLang">🔄 Switch Dialogue Example</button>
+        <button class="btn" id="btnPlayDemo">▶️ Simulate Customer Speaking (Sinhala ➔ Tamil)</button>
+        <button class="btn secondary" id="btnSwitchLang">🔄 Simulate Agent Replying (Tamil ➔ Sinhala)</button>
       </div>
     </div>
 
