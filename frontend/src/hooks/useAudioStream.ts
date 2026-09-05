@@ -619,10 +619,9 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
 }
 
 /**
- * Tamil-only voice translation mode for the app's current requirement.
- * This keeps the session pinned to Sinhala input -> Tamil output and avoids
- * the bidirectional auto-detect drift that can produce wrong languages.
+ * Bidirectional voice translation mode for call-center and live conversations.
+ * Connects to /ws/translate-auto to automatically translate Sinhala <-> Tamil in real time.
  */
 export function useAutoStream() {
-  return useAudioStream('Sinhala', 'Tamil', false);
+  return useAudioStream('Sinhala', 'Tamil', true);
 }
