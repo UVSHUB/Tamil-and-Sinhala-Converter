@@ -25,11 +25,11 @@ export default function TranslatorPage() {
   const [isTransparentMode, setIsTransparentMode] = useState<boolean>(true);
   const [packetCount, setPacketCount] = useState<number>(18);
   const [telemetryLogs, setTelemetryLogs] = useState<string[]>([
-    '[SYS_INIT] BPO Telephony Bridge active on ws://localhost:8000/ws/translate-auto',
-    '[WEBRTC_DSP] Noise gate RMS energy calibrated at 0.025 threshold',
-    '[GEMINI_LIVE] Dual session standby (Session A: Sinhala->Tamil | Session B: Tamil->Sinhala)',
+    '[SYS_INIT] Real-time BPO Telephony Bridge active on ws://localhost:8000/ws/translate-auto',
+    '[WEBRTC_DSP] Noise gate RMS energy calibrated at 0.010 threshold',
+    '[GEMINI_LIVE] Unified Live Bilingual Interpreter active (Sinhala ⇄ Tamil)',
     '[AUDIOSOCKET] Asterisk PBX 8kHz SLIN / 16kHz PCM duplex resampler ready',
-    '[ENGINE_STANDBY] Ready for customer or agent speech input...'
+    '[ENGINE_STANDBY] Ready for real-time customer or agent speech stream...'
   ]);
   const [bubbles, setBubbles] = useState<Array<{ id: number; x: number; y: number; size: number; duration: number; delay: number }>>([]);
 
@@ -467,7 +467,7 @@ export default function TranslatorPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Noise Gate:</span>
-                  <span className="font-bold text-cyan-300">0.025 RMS Filter</span>
+                  <span className="font-bold text-cyan-300">0.010 RMS Filter</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Packets TX:</span>
@@ -479,19 +479,19 @@ export default function TranslatorPage() {
               <div className="absolute top-6 right-6 w-60 p-3 rounded-xl bg-slate-900/35 border border-indigo-500/20 backdrop-blur-md text-[10px] font-mono leading-relaxed text-indigo-200/90 shadow-xl flex flex-col gap-2 transition-all">
                 <div className="flex items-center justify-between border-b border-indigo-500/20 pb-1 font-bold text-indigo-400">
                   <span className="flex items-center gap-1.5"><Cpu className="h-3 w-3 text-indigo-400" /> ENGINE PIPELINE</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">DUAL-SESSION</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">GEMINI LIVE</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">WebSocket:</span>
                   <span className="font-bold text-emerald-400">{isConnected ? 'CONNECTED' : 'STANDBY'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Gemini 2.0 Live:</span>
-                  <span className="font-bold text-cyan-300">~275ms Latency</span>
+                  <span className="text-slate-400">Gemini Live Engine:</span>
+                  <span className="font-bold text-cyan-300">Sub-Second Streaming</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Asterisk Bridge:</span>
-                  <span className="font-bold text-indigo-300">8kHz SLIN Duplex</span>
+                  <span className="text-slate-400">VAD Turnaround:</span>
+                  <span className="font-bold text-indigo-300">~150ms Instant</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">BPO Persona:</span>
