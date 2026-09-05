@@ -216,6 +216,14 @@ A production-ready, low-latency, bidirectional real-time speech-to-speech transl
 *   **Active Noise Gate (DSP):** Built-in WebRTC AudioWorklet noise suppression prevents ambient room static from accidentally triggering AI translation sessions.
 *   **Smart Speech Visualizer:** The UI waveform intelligently detects the human voice frequency floor, remaining in a smooth idle state until active speech is recognized.
 
+### Universal Package Install (Run Anywhere)
+If you want to run the application on any PC with Python installed without using Docker, you can install the entire application (Frontend + Backend bundled) as a global CLI command:
+```bash
+pip install git+https://github.com/UVSHUB/Tamil-and-Sinhala-Converter.git
+sintam
+```
+This will automatically download the dependencies, start the backend server, and serve the React application on `http://localhost:8000`.
+
 ### Local Development Run
 
 Ensure Python 3.11+ and Node 20+ are installed.
