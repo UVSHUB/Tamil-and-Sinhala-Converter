@@ -1,9 +1,19 @@
 # Sinhala ↔ Tamil Translation & Conversion Suite
 
+> **🎬 Video Showcase & LinkedIn Kit:** Watch the 42-second demo video in [`assets/sintam_demo_showcase.mp4`](assets/sintam_demo_showcase.mp4) or open the interactive web demo [`docs/demo_showcase.html`](docs/demo_showcase.html). For ready-to-use social media copy, see [`DEMO_SHOWCASE_GUIDE.md`](DEMO_SHOWCASE_GUIDE.md).
+
+## 🚀 1-Line Universal Run (`sintam`)
+Install and launch the entire application (FastAPI + bundled React UI) without Docker or Node.js:
+```bash
+pip install git+https://github.com/UVSHUB/Tamil-and-Sinhala-Converter.git
+sintam
+```
+
 A production-grade, modular toolkit for **Sinhala ↔ Tamil** bidirectional translation. This repository provides:
-1. **`sinhala-tamil-converter` Python Package**: A clean, modular library that developers can install and import into their own Python applications in 2–3 lines.
-2. **Real-time AI Voice Translator**: FastAPI + React 19 + Gemini Live WebSocket streaming platform.
-3. **Asterisk Telephony AudioSocket Bridge**: Real-time SIP telephony speech-to-speech translation gateway.
+1. **`sintam` Universal CLI**: Global command-line launcher that runs backend + bundled frontend in one command.
+2. **`sinhala-tamil-converter` Python Package**: A clean, modular library that developers can install and import into their own Python applications in 2–3 lines.
+3. **Real-time AI Voice Translator**: FastAPI + React 19 + Gemini Live WebSocket streaming platform.
+4. **Asterisk Telephony AudioSocket Bridge**: Real-time SIP telephony speech-to-speech translation gateway.
 
 ---
 
