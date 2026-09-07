@@ -1,0 +1,72 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_components/
+.venv/
+venv/
+ENV/
+env/
+pyvenv.cfg
+.pytest_cache/
+.coverage
+htmlcov/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+src/*.egg-info/
+out/
+.next/
+.nuxt/
+.cache/
+
+# Local configuration and secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.private.key
+*.pem
+*.pfx
+scratch/
+*.db
+*.db.bak
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.project
+.classpath
+.settings/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.log
+
+# Flutter / Dart build artifacts
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+local.properties
+ephemeral/
+*.iml
+.gradle/
+.kotlin/
+*.salive
+Generated.xcconfig
+flutter_export_environment.sh
