@@ -70,3 +70,4 @@ ephemeral/
 *.salive
 Generated.xcconfig
 flutter_export_environment.sh
+*.wav
