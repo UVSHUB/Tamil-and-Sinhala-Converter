@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Tamil-Sinhala Translator</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
+        .panel { background: #f4f4f9; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input[type="text"] { width: 80%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 15px; background: #0056b3; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+        button:hover { background: #004494; }
+        .record-btn { background: #d9534f; }
+        .record-btn:hover { background: #c9302c; }
+        .stop-btn { background: #5cb85c; display: none; }
+        .stop-btn:hover { background: #4cae4c; }
+        .log-box { height: 250px; overflow-y: auto; background: #1e1e1e; color: #00ff00; padding: 15px; font-family: monospace; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <h2>Live Translation Stream</h2>
+    
+    <div class="panel">
+        <label><b>1. Authenticate</b></label><br>
+        <input type="text" id="apiKey" placeholder="Enter your sk_... API Key">
+        <button onclick="connectWS()">Connect to AWS</button>
+        <p>Status: <span id="status" style="color: red; font-weight: bold;">Disconnected</span></p>
+    </div>
+
+    <div class="panel">
+        <label><b>2. Send Input</b></label><br>
+        <input type="text" id="textInput" placeholder="Type a Sinhala or Tamil phrase...">
+        <button onclick="sendMessage()">Send Text</button>
+        
+        <hr style="border: 0; border-top: 1px solid #ddd; margin: 15px 0;">
+        
+        <label><b>Voice Translation</b></label><br>
+        <button id="startBtn" class="record-btn" onclick="startRecording()">🎤 Start Speaking</button>
+        <button id="stopBtn" class="stop-btn" onclick="stopRecording()">⏹ Stop Speaking</button>
+    </div>
+
+    <div class="panel">
+        <label><b>3. Live Stream Logs</b></label>
+        <div id="logs" class="log-box"></div>
+    </div>
+
+    <script>
+        let ws;
+        let mediaRecorder;
+        let audioStream;
+
+        function logToScreen(message) {
+            const logBox = document.getElementById("logs");
+            logBox.innerHTML += `<div>> ${message}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function connectWS() {
+            const key = document.getElementById("apiKey").value;
+            if (!key) return alert("Please enter an API key!");
+
+            ws = new WebSocket("ws://15.135.75.84:8000/ws/translate?api_key=" + key);
+            
+            document.getElementById("status").innerText = "Connecting...";
+            document.getElementById("status").style.color = "orange";
+
+            ws.onopen = () => {
+                document.getElementById("status").innerText = "Connected ✅";
+                document.getElementById("status").style.color = "green";
+                logToScreen("Connected to Gemini Live stream.");
+            };
+
+            ws.onmessage = (event) => {
+                logToScreen("Received: " + event.data);
+            };
+
+            ws.onclose = (e) => {
+                document.getElementById("status").innerText = "Disconnected ❌ (Code: " + e.code + ")";
+                document.getElementById("status").style.color = "red";
+                logToScreen("Connection closed.");
+                stopRecording(); 
+            };
+        }
+
+        function sendMessage() {
+            const text = document.getElementById("textInput").value;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return alert("You must connect first!");
+            ws.send(text);
+            logToScreen("Sent Text: " + text);
+            document.getElementById("textInput").value = '';
+        }
+
+        async function startRecording() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return alert("Connect to AWS first!");
+
+            try {
+                // Request microphone access
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(audioStream);
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                        // Sends raw audio blob directly over the WebSocket
+                        ws.send(event.data);
+                    }
+                };
+
+                // Capture and send audio chunks every 500ms
+                mediaRecorder.start(500); 
+                
+                document.getElementById("startBtn").style.display = "none";
+                document.getElementById("stopBtn").style.display = "inline-block";
+                logToScreen("🎤 Microphone active. Streaming audio...");
+
+            } catch (err) {
+                alert("Microphone access denied or failed.");
+                console.error(err);
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+                audioStream.getTracks().forEach(track => track.stop());
+            }
+            
+            document.getElementById("startBtn").style.display = "inline-block";
+            document.getElementById("stopBtn").style.display = "none";
+            logToScreen("⏹ Microphone stopped.");
+        }
+    </script>
+</body>
+</html>

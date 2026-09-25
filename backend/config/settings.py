@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     
     # Gemini Live model for real-time audio translation.
     # Use a live model instead of a general text model, or Gemini may choose unrelated output languages.
-    GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
+    GEMINI_MODEL: str = "gemini-3.8-live"
     
     # Backend Server Configurations
     BACKEND_HOST: str = "127.0.0.1"
