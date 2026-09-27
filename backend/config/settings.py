@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     
     # CORS Configuration
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:80,http://127.0.0.1:8000"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:80,http://127.0.0.1:8000,http://localhost:5180"
 
     class Config:
         # Load env parameters from root directory

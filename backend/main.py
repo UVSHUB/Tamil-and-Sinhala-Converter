@@ -2,6 +2,7 @@ import logging
 import uvicorn
 import os
 import sqlite3
+import secrets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Security, HTTPException, status, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +35,19 @@ app.add_middleware(
 DB_FILE = 'api_keys.db'
 api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
 
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            api_key TEXT UNIQUE,
+            is_active INTEGER DEFAULT 1
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
 def is_key_valid(api_key: str):
     if not api_key:
         return False
@@ -45,6 +59,11 @@ def is_key_valid(api_key: str):
     return bool(result and result[0] == 1)
 # ---------------------------------------
 
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Initializing Database...")
+    init_db()
+
 @app.get("/api/v1/health", tags=["Health"])
 async def health_check():
     return {
@@ -52,6 +71,23 @@ async def health_check():
         "service": "voice-translator-backend",
         "gemini_live_configured": bool(settings.GEMINI_API_KEY)
     }
+
+# --- NEW: API KEY GENERATION ENDPOINT ---
+@app.post("/api/generate-key", tags=["Security"])
+async def generate_api_key():
+    # Generate a secure, 32-character random string
+    new_key = "sk_" + secrets.token_hex(16)
+    
+    # Connect to the existing SQLite database and save the key
+    # Setting is_active to 1 so the key is immediately usable
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO users (api_key, is_active) VALUES (?, 1)", (new_key,))
+    conn.commit()
+    conn.close()
+    
+    return {"api_key": new_key}
+# ----------------------------------------
 
 # Serve React Frontend
 frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
