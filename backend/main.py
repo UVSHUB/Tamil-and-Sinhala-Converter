@@ -66,7 +66,8 @@ async def websocket_translator_endpoint(
     source: str = "Sinhala",
     target: str = "Tamil",
     voice: str = "Aoede",
-    room: str = "default"
+    room: str = "default",
+    api_key: str | None = None
 ):
     connected = await manager.connect(websocket, room)
     if not connected:
@@ -74,7 +75,7 @@ async def websocket_translator_endpoint(
     logger.info(f"Client connected: {websocket.client} (room={room}, translating {source} -> {target} with initial voice: {voice})")
 
     try:
-        await handle_translation_stream(websocket, source, target, voice)
+        await handle_translation_stream(websocket, source, target, voice, api_key)
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected: {websocket.client}")
@@ -94,7 +95,8 @@ async def websocket_translator_endpoint(
 async def websocket_auto_translator_endpoint(
     websocket: WebSocket,
     voice: str = "Aoede",
-    room: str = "default"
+    room: str = "default",
+    api_key: str | None = None
 ):
     """
     Bidirectional auto-detect endpoint: no source/target language params needed.
@@ -107,7 +109,7 @@ async def websocket_auto_translator_endpoint(
     logger.info(f"Client connected (auto mode): {websocket.client}, room={room}, voice={voice}")
 
     try:
-        await handle_auto_translation_stream(websocket, voice, room)
+        await handle_auto_translation_stream(websocket, voice, room, api_key)
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected (auto mode): {websocket.client}")
