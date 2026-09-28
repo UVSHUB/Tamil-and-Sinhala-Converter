@@ -36,9 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy installed libraries from builder stage
 COPY --from=builder /root/.local /root/.local
-COPY . /app
+COPY . /app/backend
 
 ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONPATH=/app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
