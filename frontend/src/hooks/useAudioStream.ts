@@ -122,6 +122,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     if (!audioContextRef.current) return;
 
     const audioCtx = audioContextRef.current;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
     const int16Array = new Int16Array(arrayBuffer);
     if (int16Array.length === 0) return;
 
@@ -139,10 +143,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     if (!aiAnalyserRef.current) {
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
+      analyser.connect(audioCtx.destination);
       aiAnalyserRef.current = analyser;
     }
     source.connect(aiAnalyserRef.current);
-    aiAnalyserRef.current.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
     if (nextPlaybackTimeRef.current < now) {
@@ -257,6 +261,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         }
       } else if (e.data instanceof ArrayBuffer) {
         playAudioChunk(e.data);
+      } else if (e.data instanceof Blob) {
+        e.data.arrayBuffer().then(playAudioChunk);
       }
     };
 
@@ -358,6 +364,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         }
       } else if (e.data instanceof ArrayBuffer) {
         playAudioChunk(e.data);
+      } else if (e.data instanceof Blob) {
+        e.data.arrayBuffer().then(playAudioChunk);
       }
     };
 
@@ -422,6 +430,9 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       setTargetCaption('');
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
       audioContextRef.current = audioCtx;
       addLog(`Audio context at ${audioCtx.sampleRate}Hz.`);
 
