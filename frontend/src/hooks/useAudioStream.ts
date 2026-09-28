@@ -62,7 +62,7 @@ function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
  * Fixed: language not updating mid-session, no response output, excessive delay,
  * language switching bugs, stale closures in reconnect, and text sending issues.
  */
-export function useAudioStream(sourceLang: string, targetLang: string, autoMode: boolean = false) {
+export function useAudioStream(sourceLang: string, targetLang: string, autoMode: boolean = false, apiKey: string = '') {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [room, setRoom] = useState<string>('default');
@@ -191,7 +191,7 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}`;
+    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
     addLog(`Connecting (Room: ${room}): ${src} → ${tgt} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -293,7 +293,7 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}`;
+    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
     addLog(`Connecting auto-detect mode (Room: ${room}) | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -664,6 +664,6 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
  * Bidirectional voice translation mode for call-center and live conversations.
  * Connects to /ws/translate-auto to automatically translate Sinhala <-> Tamil in real time.
  */
-export function useAutoStream() {
-  return useAudioStream('Sinhala', 'Tamil', true);
+export function useAutoStream(apiKey: string = '') {
+  return useAudioStream('Sinhala', 'Tamil', true, apiKey);
 }
