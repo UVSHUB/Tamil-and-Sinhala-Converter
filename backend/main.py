@@ -119,7 +119,7 @@ async def websocket_translator_endpoint(
     target: str = "Tamil",
     voice: str = "Aoede",
     room: str = "default",
-    api_key: str = Query(None)  # Security key parameter
+    api_key: str | None = Query(None)  # Security & Custom Gemini key parameter
 ):
     # Security check blocks access if key is invalid
     if not is_key_valid(api_key):
@@ -132,8 +132,7 @@ async def websocket_translator_endpoint(
     logger.info(f"Client connected: {websocket.client} (room={room}, translating {source} -> {target} with initial voice: {voice})")
 
     try:
-        await handle_translation_stream(websocket, source, target, voice)
-        
+        await handle_translation_stream(websocket, source, target, voice, api_key)
     except WebSocketDisconnect:
         logger.info(f"Client disconnected: {websocket.client}")
         
@@ -153,7 +152,7 @@ async def websocket_auto_translator_endpoint(
     websocket: WebSocket,
     voice: str = "Aoede",
     room: str = "default",
-    api_key: str = Query(None)  # Security key parameter
+    api_key: str | None = Query(None)  # Security & Custom Gemini key parameter
 ):
     """
     Bidirectional auto-detect endpoint: no source/target language params needed.
@@ -171,8 +170,7 @@ async def websocket_auto_translator_endpoint(
     logger.info(f"Client connected (auto mode): {websocket.client}, room={room}, voice={voice}")
 
     try:
-        await handle_auto_translation_stream(websocket, voice, room)
-        
+        await handle_auto_translation_stream(websocket, voice, room, api_key)
     except WebSocketDisconnect:
         logger.info(f"Client disconnected (auto mode): {websocket.client}")
         

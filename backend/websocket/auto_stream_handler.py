@@ -157,21 +157,23 @@ async def handle_auto_translation_stream(
     client_ws: WebSocket,
     voice: str = "Aoede",
     room_id: str = "default",
+    api_key: str | None = None,
 ) -> None:
     """
     Handles real-time live bilingual Sinhala <-> Tamil voice translation via a single unified
     Gemini Live session, matching the instant sub-second turnaround of the Gemini Mobile App.
     """
-    if not settings.GEMINI_API_KEY:
+    final_api_key = api_key or settings.GEMINI_API_KEY
+    if not final_api_key:
         await client_ws.send_json({
             "type": "status",
-            "payload": {"message": "Error: GEMINI_API_KEY is not configured."}
+            "payload": {"message": "Error: GEMINI_API_KEY is not configured and no custom key provided."}
         })
         await client_ws.close(code=1008, reason="API key missing")
         return
 
     model = settings.GEMINI_MODEL
-    ai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    ai_client = genai.Client(api_key=final_api_key)
 
     state = {
         "source": "Sinhala",

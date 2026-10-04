@@ -157,6 +157,10 @@ To ensure efficient workspace distribution, responsibilities are divided into th
 
 ## 🚀 Quick Start Guide
 
+### ☁️ AWS Cloud Deployment (For Non-Coders)
+Want to host this backend on an AWS EC2 server so the whole world can use it? We have created a simple, zero-coding automated deployment guide.
+👉 **[Read the 1-Click AWS Deployment Guide here](AWS_DEPLOYMENT.md)**
+
 ### 1. 1-Click Automated Launch (Windows Non-Technical Users)
 For users without terminal experience, we have provided an automated startup script. Just double-click **`start_app.bat`** at the project root. It will automatically check dependencies, set up environments, and launch both the backend and frontend servers in the background. *(See `Non-Technical-Setup-Guide.md` for more details).*
 

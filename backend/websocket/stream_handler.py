@@ -14,17 +14,19 @@ async def handle_translation_stream(
     source: str = "Sinhala",
     target: str = "Tamil",
     voice: str = "Aoede",
+    api_key: str | None = None,
 ):
-    if not settings.GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY is not configured.")
+    final_api_key = api_key or settings.GEMINI_API_KEY
+    if not final_api_key:
+        logger.error("GEMINI_API_KEY is not configured and no custom key provided.")
         await client_ws.send_json({
             "type": "status",
-            "payload": {"message": "Error: GEMINI_API_KEY is not configured on the server."}
+            "payload": {"message": "Error: GEMINI_API_KEY is not configured on the server and no custom api_key was provided."}
         })
         await client_ws.close(code=1008, reason="API key missing")
         return
 
-    ai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    ai_client = genai.Client(api_key=final_api_key)
 
     # BCP-47 language codes for transcription hints
     language_map = {
