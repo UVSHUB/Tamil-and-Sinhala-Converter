@@ -4,9 +4,14 @@ class Settings(BaseSettings):
     # Google Gemini Live API Authentication Key
     GEMINI_API_KEY: str = ""
     
-    # Gemini Live model for real-time audio translation.
-    # Use a live model instead of a general text model, or Gemini may choose unrelated output languages.
-    GEMINI_MODEL: str = "gemini-3.8-live"
+    # Gemini Live model for live streaming routes (/ws/translate, /ws/translate-auto).
+    GEMINI_MODEL: str = "gemini-3.5-live-translate-preview"
+
+    # Continuous engine models:
+    #   TRANSLATE_MODEL  - speech-to-translation: detects Sinhala/Tamil/English, transcribes & translates
+    #   TTS_MODEL        - speech synthesis for the translated text (24 kHz PCM / WAV)
+    TRANSLATE_MODEL: str = "gemini-3.1-flash-lite-preview"
+    TTS_MODEL: str = "gemini-3.8-flash-tts"
     
     # Backend Server Configurations
     BACKEND_HOST: str = "127.0.0.1"

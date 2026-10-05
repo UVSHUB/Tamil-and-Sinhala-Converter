@@ -12,6 +12,7 @@ from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
 from backend.websocket.auto_stream_handler import handle_auto_translation_stream
+from backend.websocket.continuous_stream_handler import handle_continuous_translation_stream
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("backend")
@@ -147,17 +148,21 @@ async def websocket_translator_endpoint(
         manager.disconnect(websocket, room)
 
 
+@app.websocket("/ws/translate-continuous")
+@app.websocket("/ws/translate-stream")
 @app.websocket("/ws/translate-auto")
 async def websocket_auto_translator_endpoint(
     websocket: WebSocket,
+    target: str = "Tamil",
     voice: str = "Aoede",
     room: str = "default",
     api_key: str | None = Query(None)  # Security & Custom Gemini key parameter
 ):
     """
-    Bidirectional auto-detect endpoint: no source/target language params needed.
-    Automatically detects whether the user is speaking Sinhala or Tamil and
-    translates to the other language in real time.
+    Continuous real-time translation endpoint:
+    - Automatically detects input language (Sinhala / Tamil / English).
+    - Translates into selected target language (Tamil or Sinhala).
+    - Listens in the background non-stop and outputs audio every ~4.5 - 5 seconds.
     """
     # Security check blocks access if key is invalid
     if not is_key_valid(api_key):
@@ -167,20 +172,46 @@ async def websocket_auto_translator_endpoint(
     connected = await manager.connect(websocket, room)
     if not connected:
         return
-    logger.info(f"Client connected (auto mode): {websocket.client}, room={room}, voice={voice}")
+    logger.info(f"Client connected (continuous mode): {websocket.client}, room={room}, target={target}, voice={voice}")
 
     try:
-        await handle_auto_translation_stream(websocket, voice, room, api_key)
+        await handle_continuous_translation_stream(websocket, target, voice, room, api_key)
+
     except WebSocketDisconnect:
-        logger.info(f"Client disconnected (auto mode): {websocket.client}")
-        
+        logger.info(f"Client disconnected (continuous mode): {websocket.client}")
     except Exception as e:
-        logger.error(f"WebSocket auto gateway error: {str(e)}")
+        logger.error(f"WebSocket continuous gateway error: {str(e)}")
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except RuntimeError:
             pass
             
+    finally:
+        manager.disconnect(websocket, room)
+
+
+@app.websocket("/ws/translate-live")
+async def websocket_live_interpreter_endpoint(
+    websocket: WebSocket,
+    voice: str = "Aoede",
+    room: str = "default",
+    api_key: str | None = None
+):
+    """Legacy single-session live interpreter bridge."""
+    connected = await manager.connect(websocket, room)
+    if not connected:
+        return
+    logger.info(f"Client connected (live mode): {websocket.client}, room={room}, voice={voice}")
+    try:
+        await handle_auto_translation_stream(websocket, voice, room, api_key)
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected (live mode): {websocket.client}")
+    except Exception as e:
+        logger.error(f"WebSocket live gateway error: {str(e)}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except RuntimeError:
+            pass
     finally:
         manager.disconnect(websocket, room)
 

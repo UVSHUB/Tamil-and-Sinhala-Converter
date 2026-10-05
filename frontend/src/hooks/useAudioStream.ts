@@ -117,6 +117,7 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
   useEffect(() => { ttsVoiceRef.current = ttsVoice; }, [ttsVoice]);
 
   // Play synthesized 24kHz PCM audio chunk from Gemini
+  // Play synthesized audio chunk (handles 24kHz PCM and standard WAV containers)
   const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
     if (isMuted) return;
     if (!audioContextRef.current) return;
@@ -126,50 +127,60 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       audioCtx.resume();
     }
 
-    const int16Array = new Int16Array(arrayBuffer);
-    if (int16Array.length === 0) return;
+    const scheduleAudioBuffer = (audioBuffer: AudioBuffer) => {
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
 
-    const float32Array = new Float32Array(int16Array.length);
-    for (let i = 0; i < int16Array.length; i++) {
-      float32Array[i] = int16Array[i] / 32768.0;
+      if (!aiAnalyserRef.current) {
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.connect(audioCtx.destination);
+        aiAnalyserRef.current = analyser;
+      }
+      source.connect(aiAnalyserRef.current);
+
+      const now = audioCtx.currentTime;
+      if (nextPlaybackTimeRef.current < now) {
+        nextPlaybackTimeRef.current = now;
+      } else if (nextPlaybackTimeRef.current - now > 0.4) {
+        nextPlaybackTimeRef.current = now + 0.05;
+      }
+
+      source.start(nextPlaybackTimeRef.current);
+      nextPlaybackTimeRef.current += audioBuffer.duration;
+
+      setSessionState('AI_SPEAKING');
+      if (aiSpeakingTimerRef.current) {
+        clearTimeout(aiSpeakingTimerRef.current);
+      }
+      const msUntilEnd = Math.max(150, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 120);
+      aiSpeakingTimerRef.current = setTimeout(() => {
+        setSessionState('AI_LISTENING');
+      }, msUntilEnd);
+    };
+
+    // Check for RIFF header (WAV)
+    const uint8 = new Uint8Array(arrayBuffer);
+    const isWav = uint8.length >= 4 &&
+      uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46;
+
+    if (isWav) {
+      audioCtx.decodeAudioData(arrayBuffer.slice(0))
+        .then((decodedBuf) => scheduleAudioBuffer(decodedBuf))
+        .catch((err) => console.warn('WAV decoding failed:', err));
+    } else {
+      const int16Array = new Int16Array(arrayBuffer);
+      if (int16Array.length === 0) return;
+
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768.0;
+      }
+
+      const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 24000);
+      audioBuffer.copyToChannel(float32Array, 0);
+      scheduleAudioBuffer(audioBuffer);
     }
-
-    const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 24000);
-    audioBuffer.copyToChannel(float32Array, 0);
-
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-
-    if (!aiAnalyserRef.current) {
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.connect(audioCtx.destination);
-      aiAnalyserRef.current = analyser;
-    }
-    source.connect(aiAnalyserRef.current);
-
-    const now = audioCtx.currentTime;
-    if (nextPlaybackTimeRef.current < now) {
-      nextPlaybackTimeRef.current = now;
-    } else if (nextPlaybackTimeRef.current - now > 0.25) {
-      // Clamp playback drift: prevents artificial audio queuing delay
-      nextPlaybackTimeRef.current = now + 0.05;
-    }
-    source.start(nextPlaybackTimeRef.current);
-    nextPlaybackTimeRef.current += audioBuffer.duration;
-
-    // Acoustic Echo Guard: Mark AI speaking and suppress mic streaming while audio plays
-    isAiSpeakingRef.current = true;
-    setSessionState('AI_SPEAKING');
-
-    if (aiSpeakingTimerRef.current) {
-      clearTimeout(aiSpeakingTimerRef.current);
-    }
-    const msUntilEnd = Math.max(120, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 120);
-    aiSpeakingTimerRef.current = setTimeout(() => {
-      isAiSpeakingRef.current = false;
-      setSessionState('AI_LISTENING');
-    }, msUntilEnd);
   }, [isMuted]);
 
   // Close only the WebSocket without tearing down mic/audio
@@ -314,15 +325,15 @@ function getWsBaseUrl(): string {
     };
   }, [addLog, closeSocket, playAudioChunk, room]);
 
-  // Open the auto-detect WebSocket (no source/target params needed)
+  // Open the auto-detect continuous WebSocket
   const connectAutoWebSocket = useCallback((voiceName: string) => {
     if (isWsConnectingRef.current) return;
     closeSocket();
     isWsConnectingRef.current = true;
 
     const wsBase = getWsBaseUrl();
-    const wsUrl = `${wsBase}/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
-    addLog(`Connecting auto-detect mode (Room: ${room}) | voice: ${voiceName}`);
+    const wsUrl = `${wsBase}/ws/translate-auto?target=${encodeURIComponent(targetLangRef.current)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
+    addLog(`Connecting continuous translator (Room: ${room}) | Target: ${targetLangRef.current} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
@@ -335,7 +346,7 @@ function getWsBaseUrl(): string {
       setSessionState('AI_LISTENING');
       isWsConnectingRef.current = false;
       reconnectAttemptsRef.current = 0;
-      addLog('Auto-detect connected! Speak in Sinhala or Tamil.');
+      addLog(`Continuous Translator Active! Speak continuously in Sinhala, Tamil, or English (Output: ${targetLangRef.current}).`);
 
       if (pcmBufferQueueRef.current.length > 0 && pcmBufferQueueRef.current.length <= 30) {
         for (const chunk of pcmBufferQueueRef.current) socket.send(chunk);
@@ -360,9 +371,28 @@ function getWsBaseUrl(): string {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
             setSourceCaption(response.payload.text);
+            if (response.payload.detected_lang) {
+              setDetectedSourceLang(response.payload.detected_lang);
+            }
           } else if (response.type === 'translation') {
             setTargetCaption(response.payload.text);
             setSessionState('AI_SPEAKING');
+            if (response.payload.target_lang) {
+              setDetectedTargetLang(response.payload.target_lang);
+            }
+          } else if (response.type === 'segment_translated') {
+            if (response.payload.transcription) {
+              setSourceCaption(response.payload.transcription);
+            }
+            if (response.payload.translation) {
+              setTargetCaption(response.payload.translation);
+            }
+            if (response.payload.detected_lang) {
+              setDetectedSourceLang(response.payload.detected_lang);
+            }
+            if (response.payload.target_lang) {
+              setDetectedTargetLang(response.payload.target_lang);
+            }
           } else if (response.type === 'turn_complete') {
             addLog('Turn complete.');
             const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
@@ -375,7 +405,7 @@ function getWsBaseUrl(): string {
           } else if (response.type === 'lang_detected') {
             setDetectedSourceLang(response.payload.source);
             setDetectedTargetLang(response.payload.target);
-            addLog(`Auto-detected: ${response.payload.source} → ${response.payload.target}`);
+            addLog(`Detected: ${response.payload.source} → Output: ${response.payload.target}`);
           }
         } catch {
           addLog(`Raw message: ${e.data}`);
@@ -463,18 +493,11 @@ function getWsBaseUrl(): string {
       workletNodeRef.current = workletNode;
 
       workletNode.port.onmessage = (event: MessageEvent) => {
-        // Acoustic Echo Guard: Suppress microphone streaming while AI is playing translated speech
-        // This prevents the speaker output from bleeding into the mic, stopping barge-in self-interruption.
-        if (isAiSpeakingRef.current) {
-          return;
-        }
-
+        // Continuous Listening: stream microphone audio uninterrupted without dropping frames
         const pcmBuffer = event.data;
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
           socketRef.current.send(pcmBuffer);
         } else if (isWsConnectingRef.current) {
-          // Cap the queue — only keep the most recent ~250ms of audio (30 packets × ~8ms each)
-          // Older audio is stale and flooding Gemini with it causes 1011 errors
           pcmBufferQueueRef.current.push(pcmBuffer);
           if (pcmBufferQueueRef.current.length > 30) {
             pcmBufferQueueRef.current.shift(); // drop oldest
@@ -654,22 +677,42 @@ function getWsBaseUrl(): string {
     }
   }, [addLog, startStream]);
 
+  const setTargetLanguage = useCallback((newTarget: string) => {
+    targetLangRef.current = newTarget;
+    setDetectedTargetLang(newTarget);
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'set_target', target: newTarget }));
+      addLog(`Output target switched to: ${newTarget}`);
+    } else if (isActiveSessionRef.current) {
+      const voice = voiceModeRef.current === 'manual'
+        ? ttsVoiceRef.current
+        : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
+      if (autoMode) {
+        connectAutoWebSocket(voice);
+      } else {
+        connectWebSocket(voice, sourceLangRef.current, newTarget);
+      }
+    }
+  }, [addLog, autoMode, connectAutoWebSocket, connectWebSocket]);
+
   // Restart WebSocket when language changes mid-session (don't re-grab mic)
   useEffect(() => {
     if (!isActiveSessionRef.current || !audioContextRef.current) return;
     if (!socketRef.current && !isWsConnectingRef.current) return;
 
-    addLog(`Language changed: ${sourceLang} → ${targetLang}. Reconnecting...`);
-    setSourceCaption('');
-    setTargetCaption('');
+    if (!autoMode) {
+      addLog(`Language changed: ${sourceLang} → ${targetLang}. Reconnecting...`);
+      setSourceCaption('');
+      setTargetCaption('');
 
-    const voice = voiceModeRef.current === 'manual'
-      ? ttsVoiceRef.current
-      : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
+      const voice = voiceModeRef.current === 'manual'
+        ? ttsVoiceRef.current
+        : (detectedGenderRef.current === 'male' ? 'Charon' : 'Aoede');
 
-    connectWebSocket(voice, sourceLang, targetLang);
+      connectWebSocket(voice, sourceLang, targetLang);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceLang, targetLang]);
+  }, [sourceLang, targetLang, autoMode]);
 
   // Reconnect with new voice when manual voice changes
   useEffect(() => {
@@ -688,15 +731,16 @@ function getWsBaseUrl(): string {
     logs, isMuted, toggleMute, sendText, startStream, stopStream,
     setSourceCaption, setTargetCaption, addLog, micAnalyserRef, aiAnalyserRef,
     detectedGender, voiceMode, setVoiceMode, ttsVoice, setTtsVoice,
-    detectedSourceLang, detectedTargetLang,
+    detectedSourceLang, detectedTargetLang, setTargetLanguage,
     room, setRoom,
   };
 }
 
 /**
- * Bidirectional voice translation mode for call-center and live conversations.
- * Connects to /ws/translate-auto to automatically translate Sinhala <-> Tamil in real time.
+ * Continuous rolling translator:
+ * Automatically detects input speech (Sinhala / Tamil / English)
+ * and continuously outputs translation into selected target language every ~4.5 seconds.
  */
-export function useAutoStream(apiKey: string = '') {
-  return useAudioStream('Sinhala', 'Tamil', true, apiKey);
+export function useAutoStream(apiKey: string = '', initialTarget: string = 'Tamil') {
+  return useAudioStream('Auto-Detect', initialTarget, true, apiKey);
 }

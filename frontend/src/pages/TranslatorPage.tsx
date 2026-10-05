@@ -3,7 +3,7 @@ import {
   Mic, MicOff, Sparkles,
   Settings, Wifi,
   Volume2, VolumeX, Trash2, Terminal,
-  Copy, Check, Send, MessageSquare, X, Zap,
+  Copy, Check, Send, MessageSquare, X,
   Activity, Radio, Cpu
 } from 'lucide-react';
 import { useAutoStream } from '../hooks/useAudioStream';
@@ -108,6 +108,8 @@ export default function TranslatorPage() {
     };
   }, [isDraggingConfig, isDraggingLogs]);
 
+  const [selectedTargetLang, setSelectedTargetLang] = useState<'Tamil' | 'Sinhala'>('Tamil');
+
   const {
     isConnected,
     sessionState,
@@ -131,12 +133,19 @@ export default function TranslatorPage() {
     setTtsVoice,
     detectedSourceLang,
     detectedTargetLang,
+    setTargetLanguage,
     room,
     setRoom,
-  } = useAutoStream(apiKey);
+  } = useAutoStream(apiKey, selectedTargetLang);
 
   const sourceLang = detectedSourceLang ?? 'Sinhala';
-  const targetLang = detectedTargetLang ?? 'Tamil';
+  const targetLang = detectedTargetLang ?? selectedTargetLang;
+
+  const handleSelectTarget = (lang: 'Tamil' | 'Sinhala') => {
+    setSelectedTargetLang(lang);
+    setTargetLanguage(lang);
+    addLog(`Output language set to: ${lang}`);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -461,36 +470,82 @@ export default function TranslatorPage() {
         </div>
       </header>
 
-      {/* ── AUTO-DETECT LANGUAGE PILL DISPLAY ── */}
-      <div className="flex justify-center px-5 py-3 shrink-0 z-10">
-        <div className="glass-panel-mac flex items-center gap-3 px-6 py-2.5 w-full max-w-lg shadow-sm">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/10 border border-indigo-200 text-indigo-700 text-[10px] font-extrabold uppercase tracking-widest shrink-0">
-            <Zap className="h-2.5 w-2.5 text-indigo-600" />
-            Auto BPO
-          </div>
-
-          <div className="flex-1 flex flex-col items-center">
-            <span className="text-[9px] font-extrabold uppercase tracking-widest text-indigo-600 mb-0.5">Caller Speech</span>
-            <span className="text-sm font-extrabold text-slate-800">
-              {detectedSourceLang ?? 'Sinhala'}
-            </span>
-          </div>
-
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="flex items-center gap-1 text-slate-400">
-              <div className="h-px w-5 bg-indigo-300" />
-              <span className="text-indigo-600 text-sm font-bold">⇄</span>
-              <div className="h-px w-5 bg-indigo-300" />
+      {/* ── REAL-TIME CONTINUOUS LANGUAGE CONTROLLER ── */}
+      <div className="flex justify-center px-5 py-2.5 shrink-0 z-10">
+        <div className="glass-panel-mac flex items-center justify-between gap-4 px-6 py-2.5 w-full max-w-2xl shadow-md border border-white/80">
+          
+          {/* Input Language (Auto-Detected) */}
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Input Speech</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">Auto-Detect</span>
             </div>
-            <span className="text-[8px] uppercase tracking-wider text-indigo-600 font-extrabold">Bidirectional</span>
+            <div className="flex items-center gap-1.5">
+              {detectedSourceLang ? (
+                <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-800 shadow-sm flex items-center gap-1">
+                  {detectedSourceLang === 'Sinhala' ? '🇱🇰 Sinhala' : detectedSourceLang === 'Tamil' ? '🇮🇳 Tamil' : '🌐 English'}
+                  <span className="text-[9px] text-emerald-600 font-extrabold uppercase">Detected</span>
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-slate-600 py-1">
+                  Sinhala / Tamil / English
+                </span>
+              )}
+            </div>
           </div>
 
-          <div className="flex-1 flex flex-col items-center">
-            <span className="text-[9px] font-extrabold uppercase tracking-widest text-emerald-600 mb-0.5">Agent Speech</span>
-            <span className="text-sm font-extrabold text-slate-800">
-              {detectedTargetLang ?? 'Tamil'}
+          {/* Continuous Cadence Arrow */}
+          <div className="flex flex-col items-center gap-0.5 px-2">
+            <div className="flex items-center gap-1.5">
+              <div className="h-px w-6 bg-gradient-to-r from-blue-300 to-indigo-400" />
+              <span className="text-indigo-600 text-sm font-black animate-pulse">➔</span>
+              <div className="h-px w-6 bg-gradient-to-r from-indigo-400 to-emerald-400" />
+            </div>
+            <span className="text-[8px] uppercase tracking-wider text-indigo-700 font-black px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200">
+              5s Continuous
             </span>
           </div>
+
+          {/* Output Language Selector (Tamil / Sinhala) */}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Output Language</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700">Target</span>
+            </div>
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100/90 border border-slate-200 shadow-inner">
+              <button
+                type="button"
+                onClick={() => handleSelectTarget('Tamil')}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                  targetLang === 'Tamil'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/30 scale-105 border border-emerald-400/50'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+                title="Translate output into Tamil"
+              >
+                <span>🇮🇳</span>
+                <span>Tamil</span>
+                {targetLang === 'Tamil' && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectTarget('Sinhala')}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                  targetLang === 'Sinhala'
+                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md shadow-indigo-500/30 scale-105 border border-indigo-400/50'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+                title="Translate output into Sinhala"
+              >
+                <span>🇱🇰</span>
+                <span>Sinhala</span>
+                {targetLang === 'Sinhala' && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+              </button>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -649,10 +704,12 @@ export default function TranslatorPage() {
 
             <div className="flex flex-col items-center gap-1 text-center">
               <p className="text-xs text-slate-700 font-bold tracking-wide">
-                {sessionState === 'IDLE' ? 'Tap microphone to start live BPO call bridge' : 'Listening... Speak in Sinhala or Tamil'}
+                {sessionState === 'IDLE'
+                  ? 'Tap microphone to start continuous real-time translation'
+                  : `Listening continuously... Outputting speech into ${targetLang} every ~5s`}
               </p>
               <span className="text-[10px] text-slate-500 font-semibold">
-                Auto-translates between customer and agent in real-time
+                Speak continuously in Sinhala, Tamil, or English — auto-detected & translated in real-time
               </span>
             </div>
           </div>
