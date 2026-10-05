@@ -13,8 +13,8 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app/backend
-      - /app/backend/__pycache__
+      - .:/app
+      - /app/__pycache__
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
