@@ -16,7 +16,7 @@ async def handle_translation_stream(
     voice: str = "Aoede",
     api_key: str | None = None,
 ):
-    final_api_key = api_key or settings.GEMINI_API_KEY
+    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
     if not final_api_key:
         logger.error("GEMINI_API_KEY is not configured and no custom key provided.")
         await client_ws.send_json({

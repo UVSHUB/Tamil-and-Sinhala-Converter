@@ -54,25 +54,48 @@ apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docke
 git clone https://github.com/UVSHUB/Tamil-and-Sinhala-Converter.git /home/ubuntu/Tamil-and-Sinhala-Converter
 cd /home/ubuntu/Tamil-and-Sinhala-Converter
 
-# Create an empty .env file (Environment variables)
-touch .env
+# Configure Environment Variables (.env)
+cat << 'EOF' > .env
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
+TRANSLATE_MODEL=gemini-3.1-flash-lite-preview
+TTS_MODEL=gemini-3.8-flash-tts
+BACKEND_HOST=0.0.0.0
+BACKEND_PORT=8000
+ALLOWED_ORIGINS=*
+EOF
 
-# 4. Start the server!
+# 4. Start all services (Backend, Frontend, and Nginx reverse proxy)
 docker compose up -d --build
 ```
 
-## Step 4: Launch!
-Click the orange **Launch instance** button on the right side of your screen.
+> [!NOTE]
+> Replace `YOUR_GEMINI_API_KEY_HERE` with your actual Google Gemini API Key before running or edit `/home/ubuntu/Tamil-and-Sinhala-Converter/.env`.
 
-That's it! 🎉 
-Your server will boot up and spend about **5 to 10 minutes** automatically downloading the code, installing Docker, and starting the translation services in the background.
+---
+
+## Step 4: Important — Browser Microphone Permission (HTTPS Requirement)
+
+Modern web browsers (Google Chrome, Microsoft Edge, Safari, Firefox) **strictly block microphone access (`getUserMedia`) on remote IP addresses unless HTTPS is enabled**.
+
+To use the voice translation interface on AWS:
+
+### Option A: Use a Free Domain with SSL (Recommended)
+1. Point any free domain (or Cloudflare DNS) to your EC2 Public IP.
+2. In Cloudflare, enable the orange cloud (Proxy) — you get automatic, instant **free HTTPS/SSL** with zero server setup!
+3. Open `https://your-domain.com`.
+
+### Option B: Local Browser Testing Without a Domain
+If accessing directly via `http://<EC2-PUBLIC-IP>:8000`:
+1. In Chrome/Edge, visit: `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+2. Add your EC2 URL: `http://<YOUR_EC2_PUBLIC_IP>:8000`
+3. Set the flag to **Enabled** and restart the browser. This allows your browser to use the microphone on your EC2 instance.
+
+---
 
 ## Step 5: How to Connect to Your Backend
-Once the server is running, find your **Public IPv4 address** on the EC2 Instances page (e.g., `16.171.9.107`).
 
-You can now connect to your custom backend from any project by passing your own Gemini API key:
-```javascript
-const userApiKey = "YOUR_GEMINI_API_KEY";
-const socket = new WebSocket(`ws://YOUR_EC2_PUBLIC_IP:8000/ws/translate-auto?api_key=${userApiKey}`);
-```
-*(Note: Replace `YOUR_EC2_PUBLIC_IP` and `YOUR_GEMINI_API_KEY` with your actual IP and key).*
+Once your container is running:
+- **Web App**: Open `http://YOUR_EC2_PUBLIC_IP:8000` (or `http://YOUR_EC2_PUBLIC_IP` through Nginx)
+- **Health Check**: `http://YOUR_EC2_PUBLIC_IP:8000/api/v1/health`
+- **WebSocket URL**: `ws://YOUR_EC2_PUBLIC_IP:8000/ws/translate-auto?target=Tamil`
+

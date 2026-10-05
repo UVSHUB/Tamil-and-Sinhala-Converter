@@ -76,7 +76,7 @@ async def handle_continuous_translation_stream(
     room_id: str = "default",
     api_key: str | None = None,
 ) -> None:
-    final_api_key = api_key or settings.GEMINI_API_KEY
+    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
     if not final_api_key:
         await client_ws.send_json({
             "type": "status",

@@ -163,7 +163,7 @@ async def handle_auto_translation_stream(
     Handles real-time live bilingual Sinhala <-> Tamil voice translation via a single unified
     Gemini Live session, matching the instant sub-second turnaround of the Gemini Mobile App.
     """
-    final_api_key = api_key or settings.GEMINI_API_KEY
+    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
     if not final_api_key:
         await client_ws.send_json({
             "type": "status",
