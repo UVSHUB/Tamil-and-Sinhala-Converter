@@ -47,6 +47,67 @@ export default function TranslatorPage() {
   const [inputText, setInputText] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // ── Draggable Floating Windows State ──
+  const [configPos, setConfigPos] = useState({ x: 300, y: 65 });
+  const [isDraggingConfig, setIsDraggingConfig] = useState(false);
+  const configDragOffset = useRef({ x: 0, y: 0 });
+
+  const [logsPos, setLogsPos] = useState({ x: 250, y: 110 });
+  const [isDraggingLogs, setIsDraggingLogs] = useState(false);
+  const logsDragOffset = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    setConfigPos({ x: Math.max(20, window.innerWidth - 360), y: 65 });
+    setLogsPos({ x: Math.max(20, window.innerWidth - 420), y: 110 });
+  }, []);
+
+  const handleConfigMouseDown = (e: React.MouseEvent) => {
+    setIsDraggingConfig(true);
+    configDragOffset.current = {
+      x: e.clientX - configPos.x,
+      y: e.clientY - configPos.y,
+    };
+  };
+
+  const handleLogsMouseDown = (e: React.MouseEvent) => {
+    setIsDraggingLogs(true);
+    logsDragOffset.current = {
+      x: e.clientX - logsPos.x,
+      y: e.clientY - logsPos.y,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingConfig) {
+        setConfigPos({
+          x: Math.max(10, Math.min(window.innerWidth - 330, e.clientX - configDragOffset.current.x)),
+          y: Math.max(10, Math.min(window.innerHeight - 200, e.clientY - configDragOffset.current.y)),
+        });
+      }
+      if (isDraggingLogs) {
+        setLogsPos({
+          x: Math.max(10, Math.min(window.innerWidth - 400, e.clientX - logsDragOffset.current.x)),
+          y: Math.max(10, Math.min(window.innerHeight - 200, e.clientY - logsDragOffset.current.y)),
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingConfig(false);
+      setIsDraggingLogs(false);
+    };
+
+    if (isDraggingConfig || isDraggingLogs) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingConfig, isDraggingLogs]);
+
   const {
     isConnected,
     sessionState,
@@ -352,7 +413,7 @@ export default function TranslatorPage() {
           </div>
         </div>
 
-        {/* macOS Action Buttons with Relative Anchored Popovers */}
+        {/* macOS Action Buttons */}
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold transition-all ${
             isConnected ? 'bg-emerald-500/15 border border-emerald-300 text-emerald-700 shadow-sm' : 'bg-slate-200/80 border border-slate-300 text-slate-500'
@@ -378,163 +439,173 @@ export default function TranslatorPage() {
             {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
           </button>
 
-          {/* ── SETTINGS POPOVER ANCHOR ── */}
-          <div className="relative">
-            <button 
-              onClick={() => {
-                setShowConfig(!showConfig);
-                if (showLogs) setShowLogs(false);
-              }} 
-              className={`p-1.5 rounded-lg border transition-all mac-btn ${showConfig ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'text-slate-600 hover:text-slate-900'}`}
-              title="Settings"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </button>
+          <button 
+            onClick={() => setShowConfig(!showConfig)} 
+            className={`p-1.5 rounded-lg border transition-all mac-btn ${showConfig ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'text-slate-600 hover:text-slate-900'}`}
+            title="Settings"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
 
-            {showConfig && (
-              <div className="absolute top-full right-0 mt-2.5 w-80 glass-panel-mac rounded-2xl p-4 shadow-2xl z-50 border border-white animate-in fade-in slide-in-from-top-2 duration-150">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2 mb-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F56]" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#27C93F]" />
-                    <span className="text-xs font-extrabold text-slate-800 ml-1.5">Settings & Config</span>
-                  </div>
-                  <button
-                    onClick={() => setShowConfig(false)}
-                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <div className="flex flex-col gap-3 text-xs">
-                  {/* Volume */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-600 font-bold flex justify-between">
-                      <span>TTS Playback Volume</span>
-                      <span className="text-indigo-600 font-extrabold">{volume}%</span>
-                    </label>
-                    <input type="range" min="0" max="100" value={volume} onChange={e => setVolume(Number(e.target.value))}
-                      className="w-full accent-indigo-600 h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-200" />
-                  </div>
-
-                  {/* API Key */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-600 font-bold flex justify-between">
-                      <span>Gemini API Key</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={e => {
-                        setApiKey(e.target.value);
-                        localStorage.setItem('sintam_api_key', e.target.value);
-                      }}
-                      disabled={isConnected}
-                      placeholder="sk-..."
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 shadow-sm disabled:opacity-50"
-                    />
-                  </div>
-
-                  {/* Room ID */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-600 font-bold flex justify-between">
-                      <span>Active Room ID</span>
-                      <span className="text-indigo-600 font-extrabold">{room}</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={room}
-                      onChange={e => setRoom(e.target.value)}
-                      disabled={isConnected}
-                      placeholder="e.g. default, call_101"
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 shadow-sm disabled:opacity-50"
-                    />
-                  </div>
-
-                  {/* Voice Mode */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-600 font-bold">TTS Voice Mode</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={() => setVoiceMode('auto')}
-                        className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'auto' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        ✨ Auto (Gender)
-                      </button>
-                      <button type="button" onClick={() => setVoiceMode('manual')}
-                        className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'manual' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        ⚙️ Manual
-                      </button>
-                    </div>
-                  </div>
-
-                  {voiceMode === 'manual' && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-600 font-bold">Select Voice</label>
-                      <select value={ttsVoice} onChange={e => setTtsVoice(e.target.value as any)}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm">
-                        <option value="Aoede">Aoede (Female – breezy & light)</option>
-                        <option value="Kore">Kore (Female – firm & confident)</option>
-                        <option value="Charon">Charon (Male – clear & informative)</option>
-                        <option value="Puck">Puck (Male – upbeat & playful)</option>
-                        <option value="Fenrir">Fenrir (Male – energetic)</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── TERMINAL LOGS POPOVER ANCHOR ── */}
-          <div className="relative">
-            <button 
-              onClick={() => {
-                setShowLogs(!showLogs);
-                if (showConfig) setShowConfig(false);
-              }} 
-              className={`p-1.5 rounded-lg border transition-all mac-btn ${showLogs ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'text-slate-600 hover:text-slate-900'}`} 
-              title="Terminal"
-            >
-              <Terminal className="h-3.5 w-3.5" />
-            </button>
-
-            {showLogs && (
-              <div className="absolute top-full right-0 mt-2.5 w-96 glass-panel-mac rounded-2xl p-4 shadow-2xl z-50 border border-white animate-in fade-in slide-in-from-top-2 duration-150">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2 mb-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F56]" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#27C93F]" />
-                    <span className="text-xs font-extrabold text-slate-800 ml-1.5">Developer Telemetry</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[8px] uppercase tracking-wider font-bold bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono shadow-sm">Active</span>
-                    <button
-                      onClick={() => setShowLogs(false)}
-                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="bg-white/80 border border-slate-200 rounded-xl p-3 h-52 overflow-y-auto font-mono text-[10px] leading-relaxed flex flex-col-reverse gap-1.5 scrollbar-mac shadow-inner">
-                  {logs.map((log, i) => (
-                    <div key={i} className="flex items-start gap-1 px-1 py-0.5 rounded hover:bg-slate-100/60 transition-colors">
-                      <span className="text-slate-400 select-none">&gt;</span>
-                      <div className="flex-1 whitespace-pre-wrap">{formatLog(log)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          <button 
+            onClick={() => setShowLogs(!showLogs)} 
+            className={`p-1.5 rounded-lg border transition-all mac-btn ${showLogs ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'text-slate-600 hover:text-slate-900'}`} 
+            title="Terminal"
+          >
+            <Terminal className="h-3.5 w-3.5" />
+          </button>
 
           <button onClick={() => setShowChat(!showChat)} className={`p-1.5 rounded-lg border transition-all mac-btn ${showChat ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'text-slate-600 hover:text-slate-900'}`} title="Chat History">
             <MessageSquare className="h-3.5 w-3.5" />
           </button>
         </div>
       </header>
+
+      {/* ── DRAGGABLE FLOATING SETTINGS WINDOW ── */}
+      {showConfig && (
+        <div
+          style={{ left: `${configPos.x}px`, top: `${configPos.y}px` }}
+          className="fixed w-80 glass-panel-mac rounded-2xl p-4 shadow-2xl z-50 border border-white transition-shadow duration-150 animate-in fade-in zoom-in-95"
+        >
+          {/* Titlebar / Drag Handle */}
+          <div
+            onMouseDown={handleConfigMouseDown}
+            className="flex items-center justify-between border-b border-slate-200/80 pb-2 mb-3 cursor-grab active:cursor-grabbing select-none"
+          >
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F56] hover:opacity-80 cursor-pointer" onClick={() => setShowConfig(false)} />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]" />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#27C93F]" />
+              <span className="text-xs font-extrabold text-slate-800 ml-1.5 flex items-center gap-1.5">
+                <Settings className="h-3.5 w-3.5 text-indigo-600" />
+                Settings & Config
+              </span>
+            </div>
+            <button
+              onClick={() => setShowConfig(false)}
+              className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3 text-xs">
+            {/* Volume */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold flex justify-between">
+                <span>TTS Playback Volume</span>
+                <span className="text-indigo-600 font-extrabold">{volume}%</span>
+              </label>
+              <input type="range" min="0" max="100" value={volume} onChange={e => setVolume(Number(e.target.value))}
+                className="w-full accent-indigo-600 h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-200" />
+            </div>
+
+            {/* API Key */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold flex justify-between">
+                <span>Gemini API Key</span>
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => {
+                  setApiKey(e.target.value);
+                  localStorage.setItem('sintam_api_key', e.target.value);
+                }}
+                disabled={isConnected}
+                placeholder="sk-..."
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 shadow-sm disabled:opacity-50"
+              />
+            </div>
+
+            {/* Room ID */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold flex justify-between">
+                <span>Active Room ID</span>
+                <span className="text-indigo-600 font-extrabold">{room}</span>
+              </label>
+              <input
+                type="text"
+                value={room}
+                onChange={e => setRoom(e.target.value)}
+                disabled={isConnected}
+                placeholder="e.g. default, call_101"
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 shadow-sm disabled:opacity-50"
+              />
+            </div>
+
+            {/* Voice Mode */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold">TTS Voice Mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setVoiceMode('auto')}
+                  className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'auto' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  ✨ Auto (Gender)
+                </button>
+                <button type="button" onClick={() => setVoiceMode('manual')}
+                  className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'manual' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  ⚙️ Manual
+                </button>
+              </div>
+            </div>
+
+            {voiceMode === 'manual' && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-600 font-bold">Select Voice</label>
+                <select value={ttsVoice} onChange={e => setTtsVoice(e.target.value as any)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm">
+                  <option value="Aoede">Aoede (Female – breezy & light)</option>
+                  <option value="Kore">Kore (Female – firm & confident)</option>
+                  <option value="Charon">Charon (Male – clear & informative)</option>
+                  <option value="Puck">Puck (Male – upbeat & playful)</option>
+                  <option value="Fenrir">Fenrir (Male – energetic)</option>
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── DRAGGABLE FLOATING TERMINAL LOGS WINDOW ── */}
+      {showLogs && (
+        <div
+          style={{ left: `${logsPos.x}px`, top: `${logsPos.y}px` }}
+          className="fixed w-96 glass-panel-mac rounded-2xl p-4 shadow-2xl z-50 border border-white transition-shadow duration-150 animate-in fade-in zoom-in-95"
+        >
+          {/* Titlebar / Drag Handle */}
+          <div
+            onMouseDown={handleLogsMouseDown}
+            className="flex items-center justify-between border-b border-slate-200/80 pb-2 mb-3 cursor-grab active:cursor-grabbing select-none"
+          >
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F56] hover:opacity-80 cursor-pointer" onClick={() => setShowLogs(false)} />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]" />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#27C93F]" />
+              <span className="text-xs font-extrabold text-slate-800 ml-1.5 flex items-center gap-1.5">
+                <Terminal className="h-3.5 w-3.5 text-indigo-600" />
+                Developer Telemetry
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] uppercase tracking-wider font-bold bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono shadow-sm">Active</span>
+              <button
+                onClick={() => setShowLogs(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="bg-white/80 border border-slate-200 rounded-xl p-3 h-52 overflow-y-auto font-mono text-[10px] leading-relaxed flex flex-col-reverse gap-1.5 scrollbar-mac shadow-inner">
+            {logs.map((log, i) => (
+              <div key={i} className="flex items-start gap-1 px-1 py-0.5 rounded hover:bg-slate-100/60 transition-colors">
+                <span className="text-slate-400 select-none">&gt;</span>
+                <div className="flex-1 whitespace-pre-wrap">{formatLog(log)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── AUTO-DETECT LANGUAGE PILL DISPLAY ── */}
       <div className="flex justify-center px-5 py-3 shrink-0 z-10">
