@@ -189,15 +189,26 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     isWsConnectingRef.current = false;
   }, []);
 
+function getWsBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_WS_URL;
+  if (envUrl) {
+    if (envUrl.startsWith('http://')) return envUrl.replace('http://', 'ws://');
+    if (envUrl.startsWith('https://')) return envUrl.replace('https://', 'wss://');
+    return envUrl;
+  }
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;
+  return `${wsProtocol}//${wsHost}`;
+}
+
   // Open (or reopen) the WebSocket, reusing existing mic/audio context
   const connectWebSocket = useCallback((voiceName: string, src: string, tgt: string) => {
     if (isWsConnectingRef.current) return;
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
+    const wsBase = getWsBaseUrl();
+    const wsUrl = `${wsBase}/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
     addLog(`Connecting (Room: ${room}): ${src} → ${tgt} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -301,9 +312,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
+    const wsBase = getWsBaseUrl();
+    const wsUrl = `${wsBase}/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
     addLog(`Connecting auto-detect mode (Room: ${room}) | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
