@@ -723,16 +723,26 @@ export default function TranslatorPage() {
         )}
       </div>
 
-      {/* ── CONFIG MODAL OVERLAY ────────────────────────────────────── */}
+      {/* ── CONFIG POPOVER (Floating Right Box) ────────────────────── */}
       {showConfig && (
-        <div className="mx-5 mb-3 shrink-0 glass-panel-mac rounded-2xl p-4 shadow-xl z-20">
-          <h3 className="text-xs font-extrabold text-slate-800 mb-3 flex items-center gap-2">
-            <Settings className="h-3.5 w-3.5 text-indigo-600" />
-            Parameter Configuration
-          </h3>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] text-slate-600 font-bold flex justify-between">
+        <div className="absolute top-14 right-5 w-80 glass-panel-mac rounded-2xl p-4 shadow-2xl z-30 border border-white animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5 mb-3">
+            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+              <Settings className="h-3.5 w-3.5 text-indigo-600" />
+              Settings & Config
+            </h3>
+            <button
+              onClick={() => setShowConfig(false)}
+              className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3.5 text-xs">
+            {/* Volume */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold flex justify-between">
                 <span>TTS Playback Volume</span>
                 <span className="text-indigo-600 font-extrabold">{volume}%</span>
               </label>
@@ -740,8 +750,9 @@ export default function TranslatorPage() {
                 className="w-full accent-indigo-600 h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-200" />
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] text-slate-600 font-bold flex justify-between">
+            {/* API Key */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold flex justify-between">
                 <span>Gemini API Key</span>
               </label>
               <input
@@ -757,8 +768,9 @@ export default function TranslatorPage() {
               />
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] text-slate-600 font-bold flex justify-between">
+            {/* Room ID */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold flex justify-between">
                 <span>Active Room ID</span>
                 <span className="text-indigo-600 font-extrabold">{room}</span>
               </label>
@@ -767,30 +779,31 @@ export default function TranslatorPage() {
                 value={room}
                 onChange={e => setRoom(e.target.value)}
                 disabled={isConnected}
-                placeholder="Enter room name (e.g. default, call_101)"
+                placeholder="e.g. default, call_101"
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 shadow-sm disabled:opacity-50"
               />
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] text-slate-600 font-bold">TTS Voice Mode</label>
+            {/* Voice Mode */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-slate-600 font-bold">TTS Voice Mode</label>
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setVoiceMode('auto')}
-                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'auto' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'auto' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                   ✨ Auto (Gender)
                 </button>
                 <button type="button" onClick={() => setVoiceMode('manual')}
-                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'manual' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all border ${voiceMode === 'manual' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                   ⚙️ Manual
                 </button>
               </div>
             </div>
 
             {voiceMode === 'manual' && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] text-slate-600 font-bold">Select Voice</label>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-600 font-bold">Select Voice</label>
                 <select value={ttsVoice} onChange={e => setTtsVoice(e.target.value as any)}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm">
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm">
                   <option value="Aoede">Aoede (Female – breezy & light)</option>
                   <option value="Kore">Kore (Female – firm & confident)</option>
                   <option value="Charon">Charon (Male – clear & informative)</option>
@@ -803,17 +816,25 @@ export default function TranslatorPage() {
         </div>
       )}
 
-      {/* ── TERMINAL LOGS MODAL ─────────────────────────────────────────── */}
+      {/* ── TERMINAL LOGS POPOVER (Floating Right Box) ────────────────────── */}
       {showLogs && (
-        <div className="mx-5 mb-3 shrink-0 glass-panel-mac rounded-2xl p-4 shadow-xl z-20">
-          <div className="flex items-center justify-between mb-3">
+        <div className="absolute top-14 right-5 w-96 glass-panel-mac rounded-2xl p-4 shadow-2xl z-30 border border-white animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5 mb-3">
             <h4 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
               <ShieldAlert className="h-3.5 w-3.5 text-indigo-600" />
               Developer Telemetry
             </h4>
-            <span className="text-[8px] uppercase tracking-wider font-bold bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono shadow-sm">Active</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] uppercase tracking-wider font-bold bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono shadow-sm">Active</span>
+              <button
+                onClick={() => setShowLogs(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
-          <div className="bg-white/80 border border-slate-200 rounded-xl p-3 h-28 overflow-y-auto font-mono text-[10px] leading-relaxed flex flex-col-reverse gap-1.5 scrollbar-mac shadow-inner">
+          <div className="bg-white/80 border border-slate-200 rounded-xl p-3 h-52 overflow-y-auto font-mono text-[10px] leading-relaxed flex flex-col-reverse gap-1.5 scrollbar-mac shadow-inner">
             {logs.map((log, i) => (
               <div key={i} className="flex items-start gap-1 px-1 py-0.5 rounded hover:bg-slate-100/60 transition-colors">
                 <span className="text-slate-400 select-none">&gt;</span>
