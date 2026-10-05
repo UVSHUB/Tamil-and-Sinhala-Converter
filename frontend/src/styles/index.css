@@ -4,125 +4,133 @@
 
 @layer base {
   body {
-    @apply font-sans bg-slate-950 text-white min-h-screen overflow-x-hidden overflow-y-hidden;
+    @apply font-sans bg-gradient-to-br from-slate-100 via-sky-50/40 to-indigo-50/30 text-slate-800 min-h-screen overflow-x-hidden overflow-y-hidden antialiased selection:bg-indigo-500 selection:text-white;
   }
 }
 
-/* Premium Gradient Border Glassmorphism */
-.glass-panel {
-  position: relative;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+/* macOS White Liquid Glassmorphism Container */
+.glass-panel-mac {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
   border-radius: 1.25rem;
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  box-shadow: 0 4px 20px -2px rgba(148, 163, 184, 0.08), 0 2px 8px -1px rgba(148, 163, 184, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 
+    0 10px 35px -5px rgba(148, 163, 184, 0.12),
+    0 2px 10px -2px rgba(148, 163, 184, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
 }
 
-.glass-panel::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 1.25rem;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.1) 100%);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
+.glass-panel-mac-hover {
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.glass-panel-indigo::after {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(99, 102, 241, 0.03) 100%);
+.glass-panel-mac-hover:hover {
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 
+    0 20px 45px -10px rgba(99, 102, 241, 0.12),
+    0 4px 15px -2px rgba(148, 163, 184, 0.15),
+    inset 0 1px 0 0 rgba(255, 255, 255, 1);
+  transform: translateY(-1px);
 }
 
-.glass-panel-emerald::after {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.3) 0%, rgba(16, 185, 129, 0.03) 100%);
+/* macOS Frosted Header Bar */
+.mac-header-bar {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(25px) saturate(180%);
+  -webkit-backdrop-filter: blur(25px) saturate(180%);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03);
 }
 
-.glass-panel-amber::after {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(245, 158, 11, 0.03) 100%);
+/* Liquid Blob Background Animations */
+@keyframes liquid-float-1 {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(40px, -60px) scale(1.12); }
+  66% { transform: translate(-30px, 30px) scale(0.92); }
 }
 
-.glass-panel-hover {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+@keyframes liquid-float-2 {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(-50px, 40px) scale(1.08); }
+  66% { transform: translate(30px, -50px) scale(1.15); }
 }
 
-.glass-panel-hover:hover {
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 20px 40px -15px rgba(148, 163, 184, 0.15), 0 0 20px rgba(99, 102, 241, 0.05);
+@keyframes liquid-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.25); opacity: 0.85; }
 }
 
-/* Glowing Neon Highlights */
-.neon-glow-indigo {
-  box-shadow: 0 0 30px rgba(99, 102, 241, 0.25);
-}
-.neon-glow-emerald {
-  box-shadow: 0 0 30px rgba(16, 185, 129, 0.25);
-}
-.neon-glow-amber {
-  box-shadow: 0 0 30px rgba(245, 158, 11, 0.25);
+.liquid-blob-1 {
+  animation: liquid-float-1 18s ease-in-out infinite;
 }
 
-/* Micro-animations */
-@keyframes voice-pulse {
-  0% { transform: scaleY(0.1); }
-  100% { transform: scaleY(1.0); }
+.liquid-blob-2 {
+  animation: liquid-float-2 22s ease-in-out infinite;
 }
 
-/* Layered Breathing Waves */
-@keyframes ripple-wave {
-  0% {
-    transform: scale(0.9);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.6);
-    opacity: 0;
-  }
+.liquid-pulse-ring {
+  animation: liquid-pulse 3s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-.mic-ripple {
-  position: absolute;
-  inset: -12px;
-  border-radius: 50%;
-  pointer-events: none;
-  animation: ripple-wave 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+/* macOS Buttons & Pills */
+.mac-btn {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 2px 8px rgba(148, 163, 184, 0.08);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Audio Sine Wave Animation for the Capturing State */
-.wave-path {
-  stroke-dasharray: 1000;
-  stroke-dashoffset: 0;
-  animation: wave-slide 10s linear infinite;
+.mac-btn:hover {
+  background: rgba(255, 255, 255, 1);
+  border-color: rgba(199, 210, 254, 0.9);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.12);
 }
 
+.mac-btn-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+  transition: all 0.25s ease;
+}
+
+.mac-btn-primary:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Custom Scrollbar — Light macOS Style */
+.scrollbar-mac::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-mac::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-mac::-webkit-scrollbar-thumb {
+  background: rgba(203, 213, 225, 0.7);
+  border-radius: 9999px;
+}
+
+.scrollbar-mac::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.9);
+}
+
+/* Smooth Wave & Pulse Animations */
 @keyframes wave-slide {
   to {
     stroke-dashoffset: -1000;
   }
 }
 
-/* Text Panel Transitions */
-.text-panel-transition {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Scrollbar Styling — dark theme */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.8);
-  border-radius: 3px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
-  border-radius: 3px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.6);
+.wave-path {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 0;
+  animation: wave-slide 8s linear infinite;
 }
