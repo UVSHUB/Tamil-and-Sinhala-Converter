@@ -4,8 +4,8 @@ services:
   # ----------------------------------------------------------------------------
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: translator-backend
     restart: unless-stopped
     ports:
@@ -13,7 +13,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./backend:/app/backend
+      - .:/app/backend
       - /app/backend/__pycache__
     environment:
       - PYTHONUNBUFFERED=1
@@ -64,8 +64,8 @@ services:
   # ----------------------------------------------------------------------------
   audiosocket-bridge:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: translator-audiosocket-bridge
     restart: unless-stopped
     command: python -m backend.asterisk.audiosocket_bridge
