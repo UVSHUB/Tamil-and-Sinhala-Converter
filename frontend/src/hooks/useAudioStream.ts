@@ -192,9 +192,17 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
 function getWsBaseUrl(): string {
   const envUrl = import.meta.env.VITE_WS_URL;
   if (envUrl) {
-    if (envUrl.startsWith('http://')) return envUrl.replace('http://', 'ws://');
-    if (envUrl.startsWith('https://')) return envUrl.replace('https://', 'wss://');
-    return envUrl;
+    try {
+      const normalized = envUrl.replace(/^wss?:/i, 'http:');
+      const parsed = new URL(normalized);
+      const isSecure = window.location.protocol === 'https:' || envUrl.startsWith('wss');
+      return `${isSecure ? 'wss' : 'ws'}://${parsed.host}`;
+    } catch {
+      let clean = envUrl.replace(/\/ws\/.*$/, '');
+      if (clean.startsWith('http://')) clean = clean.replace('http://', 'ws://');
+      if (clean.startsWith('https://')) clean = clean.replace('https://', 'wss://');
+      return clean;
+    }
   }
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;

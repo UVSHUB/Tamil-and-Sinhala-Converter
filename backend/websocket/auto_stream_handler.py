@@ -227,10 +227,11 @@ async def handle_auto_translation_stream(
     # ── Single unified Gemini Live Interpreter Session ───────────────────────
     async def run_live_bridge():
         config = _make_live_interpreter_config(voice=voice, history=state["history"])
+        model_to_use = model
         while not client_disconnected.is_set():
             try:
-                async with ai_client.aio.live.connect(model=model, config=config) as session:
-                    logger.info(f"Unified Gemini Live interpreter active for room: {room_id}")
+                async with ai_client.aio.live.connect(model=model_to_use, config=config) as session:
+                    logger.info(f"Unified Gemini Live interpreter active for room: {room_id} (Model: {model_to_use})")
 
                     # 1. Forward microphone audio chunks to Gemini Live
                     async def forward_audio():
