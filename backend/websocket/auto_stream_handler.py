@@ -318,14 +318,13 @@ async def handle_auto_translation_stream(
                                 if sc.model_turn:
                                     for part in sc.model_turn.parts:
                                         if part.inline_data and part.inline_data.data:
-                                            room_size = len(manager.rooms.get(room_id, set()))
-                                            if room_size <= 1:
-                                                try:
-                                                    await client_ws.send_bytes(part.inline_data.data)
-                                                except Exception:
-                                                    client_disconnected.set()
-                                                    return
-                                            else:
+                                            try:
+                                                await client_ws.send_bytes(part.inline_data.data)
+                                            except Exception:
+                                                client_disconnected.set()
+                                                return
+                                            # Also broadcast to other room participants if any
+                                            if room_id in manager.rooms and len(manager.rooms[room_id]) > 1:
                                                 await manager.broadcast_bytes_except(part.inline_data.data, client_ws, room_id)
 
                                 # ── Turn complete notification ────────────────────────

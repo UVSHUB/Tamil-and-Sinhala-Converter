@@ -31,6 +31,7 @@ export default function TranslatorPage() {
     '[AUDIOSOCKET] Asterisk PBX 8kHz SLIN / 16kHz PCM duplex resampler ready',
     '[ENGINE_STANDBY] Ready for real-time customer or agent speech stream...'
   ]);
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('sintam_api_key') || '');
   const [bubbles, setBubbles] = useState<Array<{ id: number; x: number; y: number; size: number; duration: number; delay: number }>>([]);
 
   const [history, setHistory] = useState<ChatMessage[]>(() => {
@@ -72,7 +73,7 @@ export default function TranslatorPage() {
     detectedTargetLang,
     room,
     setRoom,
-  } = useAutoStream();
+  } = useAutoStream(apiKey);
 
   // Keep track of effective src/tgt for chat archive
   const sourceLang = detectedSourceLang ?? 'Sinhala';
@@ -769,6 +770,24 @@ export default function TranslatorPage() {
               </label>
               <input type="range" min="0" max="100" value={volume} onChange={e => setVolume(Number(e.target.value))}
                 className="w-full accent-indigo-500 h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-700" />
+            </div>
+
+            {/* Room ID */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] text-slate-500 font-semibold flex justify-between">
+                <span>Gemini API Key</span>
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => {
+                  setApiKey(e.target.value);
+                  localStorage.setItem('sintam_api_key', e.target.value);
+                }}
+                disabled={isConnected}
+                placeholder="sk-..."
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-300 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
             </div>
 
             {/* Room ID */}

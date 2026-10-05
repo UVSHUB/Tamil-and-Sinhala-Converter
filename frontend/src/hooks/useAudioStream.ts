@@ -62,7 +62,7 @@ function autoCorrelate(buffer: Float32Array, sampleRate: number): number {
  * Fixed: language not updating mid-session, no response output, excessive delay,
  * language switching bugs, stale closures in reconnect, and text sending issues.
  */
-export function useAudioStream(sourceLang: string, targetLang: string, autoMode: boolean = false) {
+export function useAudioStream(sourceLang: string, targetLang: string, autoMode: boolean = false, apiKey: string = '') {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [room, setRoom] = useState<string>('default');
@@ -122,6 +122,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     if (!audioContextRef.current) return;
 
     const audioCtx = audioContextRef.current;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
     const int16Array = new Int16Array(arrayBuffer);
     if (int16Array.length === 0) return;
 
@@ -139,10 +143,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     if (!aiAnalyserRef.current) {
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
+      analyser.connect(audioCtx.destination);
       aiAnalyserRef.current = analyser;
     }
     source.connect(aiAnalyserRef.current);
-    aiAnalyserRef.current.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
     if (nextPlaybackTimeRef.current < now) {
@@ -185,13 +189,26 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     isWsConnectingRef.current = false;
   }, []);
 
+function getWsBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_WS_URL;
+  if (envUrl) {
+    if (envUrl.startsWith('http://')) return envUrl.replace('http://', 'ws://');
+    if (envUrl.startsWith('https://')) return envUrl.replace('https://', 'wss://');
+    return envUrl;
+  }
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;
+  return `${wsProtocol}//${wsHost}`;
+}
+
   // Open (or reopen) the WebSocket, reusing existing mic/audio context
   const connectWebSocket = useCallback((voiceName: string, src: string, tgt: string) => {
     if (isWsConnectingRef.current) return;
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}`;
+    const wsBase = getWsBaseUrl();
+    const wsUrl = `${wsBase}/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
     addLog(`Connecting (Room: ${room}): ${src} → ${tgt} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -255,6 +272,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         }
       } else if (e.data instanceof ArrayBuffer) {
         playAudioChunk(e.data);
+      } else if (e.data instanceof Blob) {
+        e.data.arrayBuffer().then(playAudioChunk);
       }
     };
 
@@ -293,7 +312,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
     closeSocket();
     isWsConnectingRef.current = true;
 
-    const wsUrl = `ws://${window.location.hostname}:8000/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}`;
+    const wsBase = getWsBaseUrl();
+    const wsUrl = `${wsBase}/ws/translate-auto?voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
     addLog(`Connecting auto-detect mode (Room: ${room}) | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -354,6 +374,8 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
         }
       } else if (e.data instanceof ArrayBuffer) {
         playAudioChunk(e.data);
+      } else if (e.data instanceof Blob) {
+        e.data.arrayBuffer().then(playAudioChunk);
       }
     };
 
@@ -418,6 +440,9 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       setTargetCaption('');
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
       audioContextRef.current = audioCtx;
       addLog(`Audio context at ${audioCtx.sampleRate}Hz.`);
 
@@ -664,6 +689,6 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
  * Bidirectional voice translation mode for call-center and live conversations.
  * Connects to /ws/translate-auto to automatically translate Sinhala <-> Tamil in real time.
  */
-export function useAutoStream() {
-  return useAudioStream('Sinhala', 'Tamil', true);
+export function useAutoStream(apiKey: string = '') {
+  return useAudioStream('Sinhala', 'Tamil', true, apiKey);
 }
