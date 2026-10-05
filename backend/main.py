@@ -98,12 +98,14 @@ async def generate_api_key():
     return {"api_key": new_key}
 # ----------------------------------------
 
-# Serve React Frontend
+# Serve React Frontend (if built and present)
 frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+assets_path = os.path.join(frontend_path, "assets")
 
-if os.path.exists(frontend_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
+if os.path.isdir(assets_path):
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
+if os.path.isdir(frontend_path) and os.path.isfile(os.path.join(frontend_path, "index.html")):
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         # Ignore API and WS routes
@@ -118,7 +120,7 @@ if os.path.exists(frontend_path):
         # Fallback to index.html for React Router SPA
         return FileResponse(os.path.join(frontend_path, "index.html"))
 else:
-    logger.warning("Frontend dist folder not found. Only API and WebSocket routes are active.")
+    logger.info("Frontend dist folder not found or incomplete. API and WebSocket gateway active.")
 
 
 @app.websocket("/ws/translate")
