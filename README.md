@@ -1,6 +1,12 @@
 # Sinhala ↔ Tamil Translation & Conversion Suite
 
 > **🎬 Video Showcase & LinkedIn Kit:** Watch the 42-second demo video in [`assets/sintam_demo_showcase.mp4`](assets/sintam_demo_showcase.mp4) or open the interactive web demo [`docs/demo_showcase.html`](docs/demo_showcase.html). For ready-to-use social media copy, see [`DEMO_SHOWCASE_GUIDE.md`](DEMO_SHOWCASE_GUIDE.md).
+>
+> 📚 **Essential Guides:**
+> - ⚡ **[QUICKSTART.md](QUICKSTART.md)** — 3-Minute Setup & Getting Started Guide (No-Docker)
+> - 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)** — End-to-End System Flowcharts & Mermaid Sequence Diagrams
+> - ☁️ **[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md)** — 1-Click AWS EC2 Cloud Production Deployment Guide
+> - 🧪 **[test_translator.py](test_translator.py)** — Standalone WebSocket Verification Script
 
 ## 🚀 1-Line Universal Run (`sintam`)
 Install and launch the entire application (FastAPI + bundled React UI) without Docker or Node.js:
