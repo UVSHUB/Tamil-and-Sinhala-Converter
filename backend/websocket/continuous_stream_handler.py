@@ -33,14 +33,14 @@ CHANNELS = 1
 SAMPLE_WIDTH = 2  # 16-bit PCM = 2 bytes per sample
 BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH  # 32,000 bytes/sec
 
-# Cadence thresholds
-MAX_CHUNK_SECONDS = 4.5  # Slices continuous speech every 4.5 seconds
-MAX_CHUNK_BYTES = int(BYTES_PER_SECOND * MAX_CHUNK_SECONDS)  # 144,000 bytes
-MIN_CHUNK_BYTES = int(BYTES_PER_SECOND * 0.9)  # Minimum 0.9s of speech before pause trigger
-PAUSE_SILENCE_SECONDS = 0.40  # 400ms pause triggers early translation
-OVERLAP_SECONDS = 0.15  # 150ms overlap to prevent boundary clipping
+# Cadence thresholds (Optimized for ultra-low latency)
+MAX_CHUNK_SECONDS = 3.0  # Slices continuous speech every 3.0 seconds (down from 4.5s)
+MAX_CHUNK_BYTES = int(BYTES_PER_SECOND * MAX_CHUNK_SECONDS)  # 96,000 bytes
+MIN_CHUNK_BYTES = int(BYTES_PER_SECOND * 0.45)  # 450ms of speech minimum before pause trigger (down from 0.9s)
+PAUSE_SILENCE_SECONDS = 0.25  # 250ms pause triggers early translation (down from 400ms)
+OVERLAP_SECONDS = 0.12  # 120ms overlap to prevent boundary clipping
 OVERLAP_BYTES = int(BYTES_PER_SECOND * OVERLAP_SECONDS)
-NOISE_GATE_RMS = 0.006  # Noise gate threshold
+NOISE_GATE_RMS = 0.005  # Sensitive noise gate threshold
 
 
 def calculate_rms(pcm_bytes: bytes) -> float:
@@ -190,8 +190,18 @@ async def handle_continuous_translation_stream(
 
         while not client_disconnected.is_set():
             try:
-                chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.15)
+                chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.18)
             except asyncio.TimeoutError:
+                # When speaker pauses, frontend AudioWorklet drops silence frames so queue times out.
+                # Flush the speech segment immediately for ultra-low latency response!
+                if len(accumulated_speech) >= MIN_CHUNK_BYTES:
+                    state["segment_count"] += 1
+                    seg_id = state["segment_count"]
+                    audio_slice = bytes(accumulated_speech)
+                    accumulated_speech.clear()
+                    silence_bytes = 0
+                    if not process_queue.full():
+                        process_queue.put_nowait((seg_id, audio_slice, state["target_lang"], state["voice"]))
                 continue
 
             if chunk is None:
@@ -242,12 +252,15 @@ async def handle_continuous_translation_stream(
     async def process_translation_slices():
         translate_models = [
             settings.TRANSLATE_MODEL,
+            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite-preview",
-            "gemini-3.5-flash",
+            "gemini-3.8-flash",
             "gemini-flash-latest",
         ]
         tts_models = [
             settings.TTS_MODEL,
+            "gemini-3.8-flash-lite-tts",
+            "gemini-3.1-flash-tts-preview",
             "gemini-3.8-flash-tts",
             "gemini-2.5-flash-preview-tts",
         ]
@@ -289,7 +302,10 @@ async def handle_continuous_translation_stream(
                             types.Part.from_bytes(data=wav_data, mime_type="audio/wav"),
                             prompt,
                         ],
-                        config=types.GenerateContentConfig(response_mime_type="application/json"),
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            thinking_config=types.ThinkingConfig(thinking_budget=0),
+                        ),
                     )
                     text = (res.text or "").strip()
                     if text:

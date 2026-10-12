@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     # Continuous engine models:
     #   TRANSLATE_MODEL  - speech-to-translation: detects Sinhala/Tamil/English, transcribes & translates
     #   TTS_MODEL        - speech synthesis for the translated text (24 kHz PCM / WAV)
-    TRANSLATE_MODEL: str = "gemini-3.1-flash-lite-preview"
-    TTS_MODEL: str = "gemini-3.8-flash-tts"
+    TRANSLATE_MODEL: str = "gemini-3.5-flash-lite"
+    TTS_MODEL: str = "gemini-3.8-flash-lite-tts"
     
     # Backend Server Configurations
     BACKEND_HOST: str = "127.0.0.1"
