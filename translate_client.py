@@ -18,36 +18,40 @@ async def translate(host="localhost", port=8000, target="Tamil"):
 AUDIO_PCM = "sample.pcm"   # 16 kHz, mono, 16‑bit little‑endian PCM
 OUTPUT_WAV = "output.wav"
 
+async def _stream_audio(ws, audio_path):
+    """Stream PCM audio file to the WebSocket in 1024‑byte chunks."""
+    with open(audio_path, "rb") as f:
+        while chunk := f.read(1024):
+            await ws.send(chunk)
+    # Signal end of audio
+    await ws.send(b"")
+
+async def _collect_tts(ws, output_path):
+    """Collect binary TTS frames from the WebSocket and write to a WAV file."""
+    tts_data = bytearray()
+    try:
+        while True:
+            msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            if isinstance(msg, bytes):
+                tts_data.extend(msg)
+            else:
+                continue
+    except asyncio.TimeoutError:
+        pass
+    pathlib.Path(output_path).write_bytes(tts_data)
+    print(f"TTS audio saved to {output_path}")
+
 async def translate_file(host="localhost", port=8000, target="Tamil"):
     ws_url = f"ws://{host}:{port}/ws/translate-auto?target={target}"
     async with websockets.connect(ws_url) as ws:
         # receive initial status
         print("Server:", await ws.recv())
 
-        # stream the PCM file in chunks (e.g., 1024‑byte frames)
-        with open(AUDIO_PCM, "rb") as f:
-            while chunk := f.read(1024):
-                await ws.send(chunk)
+        # stream audio
+        await _stream_audio(ws, AUDIO_PCM)
 
-        # signal end of audio (optional – backend will close on client disconnect)
-        await ws.send(b"")
-
-        # collect TTS audio bytes (binary frames)
-        tts_data = bytearray()
-        try:
-            while True:
-                msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
-                if isinstance(msg, bytes):
-                    tts_data.extend(msg)
-                else:
-                    # ignore JSON status messages
-                    continue
-        except asyncio.TimeoutError:
-            pass
-
-        # write WAV file (the backend already returns a valid WAV container)
-        pathlib.Path(OUTPUT_WAV).write_bytes(tts_data)
-        print(f"TTS audio saved to {OUTPUT_WAV}")
+        # collect TTS
+        await _collect_tts(ws, OUTPUT_WAV)
 
 # Run the translate_file function when this script is executed directly
 if __name__ == "__main__":
