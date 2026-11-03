@@ -304,7 +304,6 @@ async def handle_continuous_translation_stream(
                         ],
                         config=types.GenerateContentConfig(
                             response_mime_type="application/json",
-                            thinking_config=types.ThinkingConfig(thinking_budget=0),
                         ),
                     )
                     text = (res.text or "").strip()

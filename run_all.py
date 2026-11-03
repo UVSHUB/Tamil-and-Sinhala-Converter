@@ -1,37 +1,15 @@
-import subprocess
+"""
+One-command demo: starts the backend, runs the client, then stops the backend.
+
+    python run_all.py                       # translate the bundled Sinhala speech sample to Tamil
+    python run_all.py --text "வணக்கம்" --source Tamil --target Sinhala
+
+Accepts every option of cli.py (see: python cli.py --help).
+"""
+
 import sys
-import time
-import os
 
-def start_backend():
-    """Start the FastAPI backend as a subprocess."""
-    cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # Wait a few seconds for the server to be ready
-    time.sleep(3)
-    return proc
-
-def stop_backend(proc):
-    """Terminate the backend subprocess gracefully."""
-    if proc and proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-
-def run_client():
-    """Run the CLI client (cli.py) which will handle dummy audio creation etc."""
-    cmd = [sys.executable, "cli.py"]
-    subprocess.run(cmd, check=True)
+from cli import main
 
 if __name__ == "__main__":
-    print("Starting backend server...")
-    backend_proc = start_backend()
-    print("Backend started.")
-    try:
-        run_client()
-    finally:
-        print("Shutting down backend server...")
-        stop_backend(backend_proc)
-        print("Backend stopped.")
+    sys.exit(main(["--run-backend", *sys.argv[1:]]))
