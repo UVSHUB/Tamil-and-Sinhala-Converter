@@ -1,0 +1,56 @@
+{
+  "project": "SinTam Voice Translator",
+  "test_suite": "Automated Backend Validation",
+  "timestamp": "2026-10-19T05:57:16.732087+00:00",
+  "server": "localhost:8000",
+  "initial_target_language": "Tamil",
+  "summary": {
+    "total": 5,
+    "passed": 0,
+    "failed": 5,
+    "skipped": 0,
+    "verdict": "FAILURES DETECTED"
+  },
+  "test_cases": [
+    {
+      "test_id": 1,
+      "name": "Health endpoint reachable",
+      "status": "FAIL",
+      "message": "Could not reach health endpoint: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+      "server_response": null,
+      "duration_ms": 4141.0
+    },
+    {
+      "test_id": 2,
+      "name": "WebSocket connection established",
+      "status": "FAIL",
+      "message": "Connection refused. Is the backend running?",
+      "server_response": null,
+      "duration_ms": 4781.0
+    },
+    {
+      "test_id": 3,
+      "name": "Initial language detection state received",
+      "status": "FAIL",
+      "message": "Error: [WinError 1225] The remote computer refused the network connection",
+      "server_response": null,
+      "duration_ms": 4078.0
+    },
+    {
+      "test_id": 4,
+      "name": "Language switch to Sinhala",
+      "status": "FAIL",
+      "message": "Error: [WinError 1225] The remote computer refused the network connection",
+      "server_response": null,
+      "duration_ms": 4094.0
+    },
+    {
+      "test_id": 5,
+      "name": "Bidirectional language switching (Tamil→Sinhala→Tamil)",
+      "status": "FAIL",
+      "message": "Error: [WinError 1225] The remote computer refused the network connection",
+      "server_response": null,
+      "duration_ms": 4062.0
+    }
+  ]
+}
