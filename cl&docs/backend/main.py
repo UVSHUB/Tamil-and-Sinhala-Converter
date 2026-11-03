@@ -13,6 +13,7 @@ from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
 from backend.websocket.auto_stream_handler import handle_auto_translation_stream
 from backend.websocket.continuous_stream_handler import handle_continuous_translation_stream
+from backend.websocket.live_interpreter_handler import handle_live_interpreter_stream
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("backend")
@@ -172,7 +173,8 @@ async def websocket_auto_translator_endpoint(
     Continuous real-time translation endpoint:
     - Automatically detects input language (Sinhala / Tamil / English).
     - Translates into selected target language (Tamil or Sinhala).
-    - Listens in the background non-stop and outputs audio every ~4.5 - 5 seconds.
+    - Default engine (TRANSLATION_ENGINE=simultaneous): Gemini Live translate model that
+      speaks the translation while the person is still talking (see live_interpreter_handler.py).
     """
     # Security check blocks access if key is invalid
     if not is_key_valid(api_key):
@@ -185,7 +187,10 @@ async def websocket_auto_translator_endpoint(
     logger.info(f"Client connected (continuous mode): {websocket.client}, room={room}, target={target}, voice={voice}")
 
     try:
-        await handle_continuous_translation_stream(websocket, target, voice, room, api_key)
+        if settings.TRANSLATION_ENGINE.lower() == "chunked":
+            await handle_continuous_translation_stream(websocket, target, voice, room, api_key)
+        else:
+            await handle_live_interpreter_stream(websocket, target, voice, room, api_key)
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected (continuous mode): {websocket.client}")

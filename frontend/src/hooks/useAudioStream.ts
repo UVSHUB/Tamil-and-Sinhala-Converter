@@ -71,6 +71,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
   const [targetCaption, setTargetCaption] = useState<string>('');
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [logs, setLogs] = useState<string[]>(['System initialized. Awaiting user interaction...']);
+  // Set once per finished sentence; the page appends it to the conversation history
+  const [completedTurn, setCompletedTurn] = useState<{ id: number; user: string; ai: string } | null>(null);
+  const lastSourceTextRef = useRef<string>('');
+  const lastTargetTextRef = useRef<string>('');
 
   const [detectedGender, setDetectedGender] = useState<'male' | 'female' | null>(null);
   const [voiceMode, setVoiceMode] = useState<'auto' | 'manual'>('auto');
@@ -116,10 +120,17 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
   useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
   useEffect(() => { ttsVoiceRef.current = ttsVoice; }, [ttsVoice]);
 
+  // Read mute state and API key through refs: the socket handlers are created once per
+  // connection, so reading the state variables directly would see stale values.
+  const isMutedRef = useRef<boolean>(isMuted);
+  const apiKeyRef = useRef<string>(apiKey);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
+
   // Play synthesized 24kHz PCM audio chunk from Gemini
   // Play synthesized audio chunk (handles 24kHz PCM and standard WAV containers)
   const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
-    if (isMuted) return;
+    if (isMutedRef.current) return;
     if (!audioContextRef.current) return;
 
     const audioCtx = audioContextRef.current;
@@ -140,10 +151,10 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       source.connect(aiAnalyserRef.current);
 
       const now = audioCtx.currentTime;
+      // Play chunks back to back. (Never restart the queue at "now" while audio is still
+      // queued: in simultaneous mode chunks arrive in bursts and would play on top of each other.)
       if (nextPlaybackTimeRef.current < now) {
-        nextPlaybackTimeRef.current = now;
-      } else if (nextPlaybackTimeRef.current - now > 0.4) {
-        nextPlaybackTimeRef.current = now + 0.05;
+        nextPlaybackTimeRef.current = now + 0.02;
       }
 
       source.start(nextPlaybackTimeRef.current);
@@ -181,7 +192,16 @@ export function useAudioStream(sourceLang: string, targetLang: string, autoMode:
       audioBuffer.copyToChannel(float32Array, 0);
       scheduleAudioBuffer(audioBuffer);
     }
-  }, [isMuted]);
+  }, []);
+
+  // A sentence is finished: hand it to the page (server sends the texts; fall back to captions)
+  const publishTurn = useCallback((payload: any) => {
+    const user = ((payload && payload.user_text) || lastSourceTextRef.current || '').trim();
+    const ai = ((payload && payload.ai_text) || lastTargetTextRef.current || '').trim();
+    lastSourceTextRef.current = '';
+    lastTargetTextRef.current = '';
+    if (user || ai) setCompletedTurn({ id: Date.now() + Math.random(), user, ai });
+  }, []);
 
   // Close only the WebSocket without tearing down mic/audio
   const closeSocket = useCallback(() => {
@@ -227,7 +247,7 @@ function getWsBaseUrl(): string {
     isWsConnectingRef.current = true;
 
     const wsBase = getWsBaseUrl();
-    const wsUrl = `${wsBase}/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
+    const wsUrl = `${wsBase}/ws/translate?source=${encodeURIComponent(src)}&target=${encodeURIComponent(tgt)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKeyRef.current ? `&api_key=${encodeURIComponent(apiKeyRef.current)}` : ''}`;
     addLog(`Connecting (Room: ${room}): ${src} → ${tgt} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -269,10 +289,13 @@ function getWsBaseUrl(): string {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
             setSourceCaption(response.payload.text);
+            lastSourceTextRef.current = response.payload.text;
           } else if (response.type === 'translation') {
             setTargetCaption(response.payload.text);
+            lastTargetTextRef.current = response.payload.text;
             setSessionState('AI_SPEAKING');
           } else if (response.type === 'turn_complete') {
+            publishTurn(response.payload);
             addLog('Turn complete.');
             const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
             const msUntilEnd = Math.max(80, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 80);
@@ -323,7 +346,7 @@ function getWsBaseUrl(): string {
         if (!isActiveSessionRef.current) setSessionState('IDLE');
       }
     };
-  }, [addLog, closeSocket, playAudioChunk, room]);
+  }, [addLog, closeSocket, playAudioChunk, publishTurn, room]);
 
   // Open the auto-detect continuous WebSocket
   const connectAutoWebSocket = useCallback((voiceName: string) => {
@@ -332,7 +355,7 @@ function getWsBaseUrl(): string {
     isWsConnectingRef.current = true;
 
     const wsBase = getWsBaseUrl();
-    const wsUrl = `${wsBase}/ws/translate-auto?target=${encodeURIComponent(targetLangRef.current)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`;
+    const wsUrl = `${wsBase}/ws/translate-auto?target=${encodeURIComponent(targetLangRef.current)}&voice=${encodeURIComponent(voiceName)}&room=${encodeURIComponent(room)}${apiKeyRef.current ? `&api_key=${encodeURIComponent(apiKeyRef.current)}` : ''}`;
     addLog(`Connecting continuous translator (Room: ${room}) | Target: ${targetLangRef.current} | voice: ${voiceName}`);
 
     const socket = new WebSocket(wsUrl);
@@ -371,11 +394,13 @@ function getWsBaseUrl(): string {
             addLog(`[Server] ${response.payload.message}`);
           } else if (response.type === 'transcription') {
             setSourceCaption(response.payload.text);
+            lastSourceTextRef.current = response.payload.text;
             if (response.payload.detected_lang) {
               setDetectedSourceLang(response.payload.detected_lang);
             }
           } else if (response.type === 'translation') {
             setTargetCaption(response.payload.text);
+            lastTargetTextRef.current = response.payload.text;
             setSessionState('AI_SPEAKING');
             if (response.payload.target_lang) {
               setDetectedTargetLang(response.payload.target_lang);
@@ -394,6 +419,7 @@ function getWsBaseUrl(): string {
               setDetectedTargetLang(response.payload.target_lang);
             }
           } else if (response.type === 'turn_complete') {
+            publishTurn(response.payload);
             addLog('Turn complete.');
             const now = audioContextRef.current ? audioContextRef.current.currentTime : 0;
             const msUntilEnd = Math.max(80, Math.round((nextPlaybackTimeRef.current - now) * 1000) + 80);
@@ -444,7 +470,7 @@ function getWsBaseUrl(): string {
         if (!isActiveSessionRef.current) setSessionState('IDLE');
       }
     };
-  }, [addLog, closeSocket, playAudioChunk, room]);
+  }, [addLog, closeSocket, playAudioChunk, publishTurn, room]);
 
   // Full session start: grab mic, load worklet, connect WebSocket
   const startStream = useCallback(async () => {
@@ -493,7 +519,9 @@ function getWsBaseUrl(): string {
       workletNodeRef.current = workletNode;
 
       workletNode.port.onmessage = (event: MessageEvent) => {
-        // Continuous Listening: stream microphone audio uninterrupted without dropping frames
+        // No mic muting during playback: in simultaneous mode the translation plays while the
+        // user is still talking. Echo is handled by the browser's echo cancellation and by the
+        // server (speech already in the target language is answered with silence).
         const pcmBuffer = event.data;
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
           socketRef.current.send(pcmBuffer);
@@ -732,7 +760,7 @@ function getWsBaseUrl(): string {
     setSourceCaption, setTargetCaption, addLog, micAnalyserRef, aiAnalyserRef,
     detectedGender, voiceMode, setVoiceMode, ttsVoice, setTtsVoice,
     detectedSourceLang, detectedTargetLang, setTargetLanguage,
-    room, setRoom,
+    room, setRoom, completedTurn,
   };
 }
 

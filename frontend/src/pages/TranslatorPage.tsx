@@ -136,6 +136,7 @@ export default function TranslatorPage() {
     setTargetLanguage,
     room,
     setRoom,
+    completedTurn,
   } = useAutoStream(apiKey, selectedTargetLang);
 
   const sourceLang = detectedSourceLang ?? 'Sinhala';
@@ -298,11 +299,24 @@ export default function TranslatorPage() {
     return () => cancelAnimationFrame(animationFrameId);
   }, [sessionState, isConnected, micAnalyserRef, aiAnalyserRef]);
 
-  // ── Archive transcripts ──
+  // ── Archive each finished sentence (the server signals it with turn_complete) ──
+  useEffect(() => {
+    if (!completedTurn) return;
+    const timestamp = new Date();
+    const newMessages: ChatMessage[] = [];
+    if (completedTurn.user) newMessages.push({ id: `user-${completedTurn.id}`, sender: 'user', text: completedTurn.user, timestamp, language: sourceLang });
+    if (completedTurn.ai) newMessages.push({ id: `ai-${completedTurn.id}`, sender: 'ai', text: completedTurn.ai, timestamp, language: targetLang });
+    setHistory(prev => [...prev, ...newMessages]);
+    setSourceCaption('');
+    setTargetCaption('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedTurn]);
+
+  // ── When the session stops, archive whatever unfinished sentence is still on screen ──
   useEffect(() => {
     const isStateTransition = prevSessionState.current !== sessionState;
-    if (isStateTransition && (sessionState === 'AI_LISTENING' || sessionState === 'IDLE')) {
-      if (prevSessionState.current === 'AI_SPEAKING' || prevSessionState.current === 'AI_LISTENING') {
+    if (isStateTransition && sessionState === 'IDLE') {
+      if (prevSessionState.current !== 'IDLE') {
         const userText = sourceCaption.trim();
         const aiText = targetCaption.trim();
         if (userText || aiText) {

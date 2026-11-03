@@ -153,8 +153,9 @@ async def handle_translation_stream(
                                             f"Translate the following from {source} to {target}. "
                                             f"Output ONLY the translated text:\n{raw}"
                                         )
-                                        rest_response = ai_client.models.generate_content(
-                                            model="gemini-2.0-flash",
+                                        rest_response = await asyncio.to_thread(
+                                            ai_client.models.generate_content,
+                                            model=settings.TRANSLATE_MODEL,
                                             contents=prompt,
                                         )
                                         translation = (rest_response.text or "").strip()

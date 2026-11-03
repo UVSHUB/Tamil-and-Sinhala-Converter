@@ -116,7 +116,7 @@ def test_build_companion_instruction():
     ]
     prompt = _build_companion_instruction("Sinhala", "Tamil", history)
 
-    assert "translation engine" in prompt.lower()
+    assert "translator" in prompt.lower()
     assert "output only the translated text in tamil" in prompt.lower()
     assert "do not translate into any other language" in prompt.lower()
     assert "context" in prompt.lower()

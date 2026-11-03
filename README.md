@@ -8,6 +8,44 @@
 > - ☁️ **[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md)** — 1-Click AWS EC2 Cloud Production Deployment Guide
 > - 🧪 **[test_translator.py](test_translator.py)** — Standalone WebSocket Verification Script
 
+## ▶️ Run the Project (one command)
+
+Requires **Python 3.10+**, **Node.js 20+** (for the web app) and a free **Gemini API key** (https://aistudio.google.com/apikey).
+
+```bash
+python run_project.py
+```
+
+It installs missing Python packages, asks for your Gemini API key the first time (saved in `.env`),
+builds the web app, starts the server and opens **http://localhost:8000**. Click **Start**, allow the
+microphone and speak Sinhala, Tamil or English — the translation is spoken while you talk.
+Press **Ctrl+C** to stop. Options: `--port 8010`, `--no-browser`, `--rebuild`, `--skip-frontend`.
+
+### Client code (Python, no browser)
+
+The backend can be used by any program, not only the web page. **`client_example.py`** is a short,
+commented example of client code that connects to the backend over WebSocket:
+
+```bash
+python run_project.py              # terminal 1: start the backend
+python client_example.py           # terminal 2: client sends text + speech, prints the translation
+python client_example.py 192.168.1.20:8000   # backend running on another computer
+```
+
+A full command-line client is also included:
+
+```bash
+python run_all.py                                                   # starts the server, translates a Sinhala speech sample to Tamil
+python run_all.py --text "ආයුබෝවන්, ඔබට කොහොමද?"                    # text translation
+python run_all.py --audio my_voice.wav --target Sinhala              # your own recording
+python cli.py --port 8000                                            # use a server that is already running
+```
+
+`translate_client.py` contains the reusable WebSocket client functions (`translate_audio`, `translate_text`).
+The same client is packaged in [`cl&docs/`](cl&docs/README.md) with its own README.
+
+---
+
 ## 🚀 1-Line Universal Run (`sintam`)
 Install and launch the entire application (FastAPI + bundled React UI) without Docker or Node.js:
 ```bash
