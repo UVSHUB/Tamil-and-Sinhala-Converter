@@ -370,7 +370,31 @@ def record_microphone_audio(duration: float | None = None, output_wav: str | Non
         except Exception as mac_err:
             print(f"  [warning] macOS microphone recording error: {mac_err}")
 
-    # 3. Linux `arecord` or cross-platform `sox` / `ffmpeg`
+    # 3. Windows built-in winmm.dll MCI recorder via ctypes (zero third-party packages required)
+    if sys.platform == "win32":
+        try:
+            winmm = ctypes.windll.winmm
+            mci = winmm.mciSendStringW
+            abs_out = os.path.abspath(output_wav)
+            mci("close sintam_rec", None, 0, 0)
+            mci("open new type waveaudio alias sintam_rec", None, 0, 0)
+            mci(f"set sintam_rec time format ms bitspersample 16 channels 1 samplespersec {IN_RATE}", None, 0, 0)
+            mci("record sintam_rec", None, 0, 0)
+            if duration:
+                print(f"🎙️  Recording from microphone for {duration:.1f}s ... Speak now!")
+                time.sleep(duration)
+            else:
+                print("🎙️  Recording from microphone... Speak now, and press Enter when finished!")
+                input()
+            mci("stop sintam_rec", None, 0, 0)
+            mci(f'save sintam_rec "{abs_out}"', None, 0, 0)
+            mci("close sintam_rec", None, 0, 0)
+            if os.path.isfile(abs_out) and os.path.getsize(abs_out) > 44:
+                return abs_out
+        except Exception as win_err:
+            print(f"  [warning] Windows microphone recording error: {win_err}")
+
+    # 4. Linux `arecord` or cross-platform `sox` / `ffmpeg`
     arecord_bin = shutil.which("arecord")
     if arecord_bin:
         cmd = [arecord_bin, "-q", "-f", "S16_LE", "-r", str(IN_RATE), "-c", "1"]

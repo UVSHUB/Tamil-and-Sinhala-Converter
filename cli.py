@@ -14,6 +14,7 @@ Examples (run from this folder):
 import argparse
 import asyncio
 import importlib.util
+import io
 import json
 import os
 import socket
@@ -21,8 +22,35 @@ import subprocess
 import sys
 import time
 import urllib.request
+import zipfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+GITHUB_ZIP_URL = "https://github.com/UVSHUB/Tamil-and-Sinhala-Converter/archive/refs/heads/main.zip"
+
+
+def _ensure_project_files() -> str:
+    """If cli.py is run standalone without backend/ or translate_client.py, download them from GitHub."""
+    if os.path.isfile(os.path.join(HERE, "translate_client.py")) and os.path.isfile(os.path.join(HERE, "backend", "main.py")):
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        return HERE
+
+    cache_root = os.path.join(os.path.expanduser("~"), ".sintam_project")
+    project_dir = os.path.join(cache_root, "Tamil-and-Sinhala-Converter-main")
+    if not os.path.isfile(os.path.join(project_dir, "backend", "main.py")):
+        print("Downloading SinTam backend & client from GitHub (UVSHUB/Tamil-and-Sinhala-Converter) ...")
+        os.makedirs(cache_root, exist_ok=True)
+        with urllib.request.urlopen(GITHUB_ZIP_URL, timeout=60) as resp:
+            zip_bytes = resp.read()
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            zf.extractall(cache_root)
+        print(f"Downloaded project to: {project_dir}")
+    if project_dir not in sys.path:
+        sys.path.insert(0, project_dir)
+    return project_dir
+
+
+HERE = _ensure_project_files()
 BACKEND_LOG = os.path.join(HERE, "backend.log")
 REQUIRED_MODULES = ["websockets", "fastapi", "uvicorn", "google.genai", "pydantic_settings"]
 
@@ -353,8 +381,12 @@ def main(argv=None) -> int:
             args.port = _resolve_port(args.host, args.port)
             backend = start_backend(args.host, args.port)
         elif not _health(args.host, args.port):
-            print(f"No backend at http://{args.host}:{args.port}. Start one, or add --run-backend.")
-            return 1
+            if args.host in ("127.0.0.1", "localhost"):
+                args.port = _resolve_port(args.host, args.port)
+                backend = start_backend(args.host, args.port)
+            else:
+                print(f"No backend at http://{args.host}:{args.port}. Start one, or add --run-backend.")
+                return 1
 
         if args.interactive:
             return _run_interactive_loop(args)

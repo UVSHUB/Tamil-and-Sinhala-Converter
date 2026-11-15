@@ -304,7 +304,28 @@ def record_microphone_audio(duration: Optional[float] = None, output_wav: Option
         print(f"✓ Recorded voice saved to {output_wav}")
         return output_wav
 
-    # 3. Try ffmpeg / arecord on Linux/Windows
+    # 3. On Windows, use built-in winmm.dll MCI recorder via ctypes
+    if sys.platform == "win32":
+        import ctypes
+        winmm = ctypes.windll.winmm
+        mci = winmm.mciSendStringW
+        mci("close sintam_rec", None, 0, 0)
+        mci("open new type waveaudio alias sintam_rec", None, 0, 0)
+        mci(f"set sintam_rec time format ms bitspersample 16 channels 1 samplespersec {IN_SAMPLE_RATE}", None, 0, 0)
+        mci("record sintam_rec", None, 0, 0)
+        if duration and duration > 0:
+            print(f"🎤 Recording live voice from microphone for {duration:.1f}s ... Speak now!")
+            time.sleep(duration)
+        else:
+            input("🎤 Recording live voice from microphone... Speak now and press [Enter] when finished > ")
+        mci("stop sintam_rec", None, 0, 0)
+        mci(f'save sintam_rec "{output_wav}"', None, 0, 0)
+        mci("close sintam_rec", None, 0, 0)
+        if os.path.isfile(output_wav) and os.path.getsize(output_wav) > 44:
+            print(f"✓ Recorded voice saved to {output_wav}")
+            return output_wav
+
+    # 4. Try ffmpeg / arecord on Linux
     if shutil.which("arecord"):
         secs = int(duration or 5)
         print(f"🎤 Recording live voice from microphone for {secs}s ... Speak now!")

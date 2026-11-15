@@ -190,7 +190,7 @@ def start_backend(port: int) -> subprocess.Popen:
     for key, value in read_env().items():
         env.setdefault(key, value)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", str(port)],
+        [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", str(port)],
         cwd=ROOT, env=env,
     )
     deadline = time.monotonic() + 60
