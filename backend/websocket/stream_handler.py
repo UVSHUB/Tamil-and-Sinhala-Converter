@@ -10,6 +10,7 @@ from backend.config.settings import settings
 from backend.websocket.continuous_stream_handler import (
     create_genai_client,
     detect_audio_mime,
+    is_gemini_api_key,
     pcm_to_wav,
     synthesize_tts_audio,
     transcribe_and_translate_wav,
@@ -31,7 +32,7 @@ async def handle_translation_stream(
     voice: str = "Aoede",
     api_key: str | None = None,
 ):
-    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
+    final_api_key = api_key if is_gemini_api_key(api_key) else settings.GEMINI_API_KEY
     if not final_api_key:
         logger.error("GEMINI_API_KEY is not configured and no custom key provided.")
         await client_ws.send_json({

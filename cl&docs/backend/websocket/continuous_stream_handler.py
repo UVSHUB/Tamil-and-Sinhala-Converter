@@ -116,6 +116,40 @@ def detect_audio_mime(raw: bytes = b"", filename: str = "") -> str:
     return "audio/pcm"
 
 
+def is_gemini_api_key(api_key: str | None) -> bool:
+    """Return True if `api_key` looks like a direct Google Gemini API key (e.g. AIza... or AQ....)."""
+    if not api_key:
+        return False
+    cleaned = api_key.strip()
+    if cleaned.startswith("sk_") or cleaned == "your_gemini_api_key_here":
+        return False
+    return cleaned.startswith(("AIza", "AQ.")) or len(cleaned) >= 20
+
+
+def classify_gemini_error(err: Exception | str | None) -> str | None:
+    """Return a clear user-facing error message if `err` is an API key, billing (402), or quota (429) error."""
+    if not err:
+        return None
+    text = str(err)
+    lower = text.lower()
+    if "prepayment credits are depleted" in lower or "402" in text or "payment required" in lower:
+        return (
+            "ERROR: Gemini API key prepayment credits are depleted (HTTP 402). "
+            "Please update GEMINI_API_KEY in .env (or type 'key <NEW_GEMINI_API_KEY>' in interactive mode)."
+        )
+    if "api_key_invalid" in lower or "api key not valid" in lower or "invalid api key" in lower:
+        return (
+            "ERROR: Gemini API key is invalid. "
+            "Please update GEMINI_API_KEY in .env (or type 'key <NEW_GEMINI_API_KEY>' in interactive mode)."
+        )
+    if "resource_exhausted" in text or "429" in text or "quota" in lower:
+        return (
+            "ERROR: Gemini API quota exceeded (HTTP 429) for this API key. "
+            "Wait a while or update GEMINI_API_KEY in .env (or type 'key <NEW_GEMINI_API_KEY>')."
+        )
+    return None
+
+
 def create_genai_client(api_key: str, api_version: str = "v1beta") -> genai.Client:
     """Create a Google GenAI client with v1beta and clean base_url (fixes HTTP 404 in google-genai >= 3.0)."""
     return genai.Client(
@@ -163,6 +197,7 @@ async def transcribe_and_translate_wav(
         "Respond ONLY with valid JSON with keys: "
         '{"detected_language": "Sinhala"|"Tamil"|"English", "transcription": "...", "translation": "..."}'
     )
+    setattr(ai_client, "_last_gemini_error", None)
     for model_name in translate_models:
         try:
             res = await asyncio.to_thread(
@@ -180,7 +215,10 @@ async def transcribe_and_translate_wav(
             if text:
                 return json.loads(text)
         except Exception as ex:
+            setattr(ai_client, "_last_gemini_error", ex)
             logger.debug(f"Model {model_name} error: {ex}, trying fallback...")
+            if classify_gemini_error(ex):
+                break
             continue
     return None
 
@@ -232,7 +270,7 @@ async def handle_continuous_translation_stream(
     room_id: str = "default",
     api_key: str | None = None,
 ) -> None:
-    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
+    final_api_key = api_key if is_gemini_api_key(api_key) else settings.GEMINI_API_KEY
     if not final_api_key:
         await client_ws.send_json({
             "type": "status",

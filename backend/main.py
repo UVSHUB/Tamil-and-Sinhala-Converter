@@ -20,6 +20,7 @@ from backend.websocket.continuous_stream_handler import (
     create_genai_client,
     detect_audio_mime,
     handle_continuous_translation_stream,
+    is_gemini_api_key,
     pcm_to_wav,
     synthesize_tts_audio,
     transcribe_and_translate_wav,
@@ -67,7 +68,7 @@ def is_key_valid(api_key: str | None = None) -> bool:
         return True
     if not api_key:
         return False
-    if api_key.startswith("AIza"):
+    if is_gemini_api_key(api_key):
         return True
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -126,7 +127,7 @@ async def translate_audio_endpoint(
       - JSON body: {"audio_base64": "...", "mime_type": "audio/mp3", "target": "Tamil"}
       - Raw binary audio bytes in the request body
     """
-    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
+    final_api_key = api_key if is_gemini_api_key(api_key) else settings.GEMINI_API_KEY
     if not final_api_key:
         raise HTTPException(status_code=401, detail="GEMINI_API_KEY is not configured.")
 

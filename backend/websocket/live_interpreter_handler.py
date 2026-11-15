@@ -44,8 +44,10 @@ from backend.websocket.continuous_stream_handler import (
     MAX_CHUNK_BYTES,
     MIN_CHUNK_BYTES,
     PAUSE_SILENCE_SECONDS,
+    classify_gemini_error,
     create_genai_client,
     detect_audio_mime,
+    is_gemini_api_key,
     pcm_to_wav,
     synthesize_tts_audio,
     transcribe_and_translate_wav,
@@ -166,7 +168,7 @@ async def handle_live_interpreter_stream(
     room_id: str = "default",
     api_key: str | None = None,
 ) -> None:
-    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
+    final_api_key = api_key if is_gemini_api_key(api_key) else settings.GEMINI_API_KEY
     if not final_api_key:
         await client_ws.send_json({
             "type": "status",
@@ -255,7 +257,8 @@ async def handle_live_interpreter_stream(
             translation = await translate_typed_text(phrase, target_now)
         except Exception as err:
             logger.warning(f"Typed text translation failed: {err}")
-            await status("Typed text could not be translated (Gemini request failed).")
+            err_msg = classify_gemini_error(err) or "ERROR: Typed text could not be translated (Gemini request failed)."
+            await status(err_msg)
             return
         await send_json({"type": "translation",
                          "payload": {"speaker": "ai", "text": translation, "target_lang": target_now}})
@@ -280,6 +283,11 @@ async def handle_live_interpreter_stream(
             target_now = state["target"]
             res_data = await transcribe_and_translate_wav(ai_client, pcm_to_wav(pcm_bytes), target_now)
             if not res_data or state["turns_completed"] > turns_before:
+                if not res_data and state["turns_completed"] == turns_before:
+                    last_err = getattr(ai_client, "_last_gemini_error", None)
+                    err_msg = classify_gemini_error(last_err)
+                    if err_msg:
+                        await status(err_msg)
                 return
             heard = (res_data.get("transcription") or "").strip()
             said = (res_data.get("translation") or "").strip()
@@ -458,8 +466,9 @@ async def handle_live_interpreter_stream(
                 model_idx += 1
                 text = str(err)
                 logger.warning(f"Live interpreter session error ({failures}/{ len(candidate_models)}, model={active_model}): {text}")
-                if "RESOURCE_EXHAUSTED" in text or "429" in text or "quota" in text.lower():
-                    await status("Gemini quota exceeded for this API key. Wait a while or use a key with billing enabled.")
+                err_msg = classify_gemini_error(text)
+                if err_msg:
+                    await status(err_msg)
                     return
                 if failures >= len(candidate_models):
                     logger.info("Switching to chunked audio translation fallback.")

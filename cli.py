@@ -37,14 +37,17 @@ def _ensure_project_files() -> str:
 
     cache_root = os.path.join(os.path.expanduser("~"), ".sintam_project")
     project_dir = os.path.join(cache_root, "Tamil-and-Sinhala-Converter-main")
-    if not os.path.isfile(os.path.join(project_dir, "backend", "main.py")):
-        print("Downloading SinTam backend & client from GitHub (UVSHUB/Tamil-and-Sinhala-Converter) ...")
+    try:
+        print("Fetching latest SinTam backend & client from GitHub (UVSHUB/Tamil-and-Sinhala-Converter) ...")
         os.makedirs(cache_root, exist_ok=True)
         with urllib.request.urlopen(GITHUB_ZIP_URL, timeout=60) as resp:
             zip_bytes = resp.read()
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             zf.extractall(cache_root)
-        print(f"Downloaded project to: {project_dir}")
+        print(f"Project ready at: {project_dir}")
+    except Exception as exc:
+        if not os.path.isfile(os.path.join(project_dir, "backend", "main.py")):
+            raise RuntimeError(f"Could not download project from GitHub: {exc}") from exc
     if project_dir not in sys.path:
         sys.path.insert(0, project_dir)
     return project_dir
@@ -96,18 +99,45 @@ import translate_client  # noqa: E402
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _read_env_file() -> dict:
-    """Read KEY=VALUE pairs from .env in this folder, or the repository root above it."""
-    for path in (os.path.join(HERE, ".env"), os.path.join(HERE, "..", ".env")):
+    """Read KEY=VALUE pairs from .env in current working directory, ~/Tamil-and-Sinhala-Converter, or HERE."""
+    candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.path.expanduser("~"), "Tamil-and-Sinhala-Converter", ".env"),
+        os.path.join(HERE, ".env"),
+        os.path.join(HERE, "..", ".env"),
+    ]
+    merged: dict = {}
+    for path in reversed(candidates):
         if os.path.isfile(path):
-            values = {}
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
-                        values[key.strip()] = value.strip().strip('"').strip("'")
-            return values
-    return {}
+                        val = value.strip().strip('"').strip("'")
+                        if val and val != "your_gemini_api_key_here":
+                            merged[key.strip()] = val
+    return merged
+
+
+def _save_api_key(entered_key: str) -> None:
+    """Save GEMINI_API_KEY to HERE/.env (and cwd/.env if present)."""
+    entered_key = entered_key.strip().strip('"').strip("'")
+    if not entered_key:
+        return
+    os.environ["GEMINI_API_KEY"] = entered_key
+    targets = [os.path.join(HERE, ".env")]
+    cwd_env = os.path.join(os.getcwd(), ".env")
+    if os.path.isfile(cwd_env) and os.path.abspath(cwd_env) != os.path.abspath(targets[0]):
+        targets.append(cwd_env)
+    for env_path in targets:
+        existing_lines = []
+        if os.path.isfile(env_path):
+            with open(env_path, encoding="utf-8") as ef:
+                existing_lines = [l for l in ef.read().splitlines() if not l.strip().startswith("GEMINI_API_KEY=")]
+        existing_lines.insert(0, f"GEMINI_API_KEY={entered_key}")
+        with open(env_path, "w", encoding="utf-8") as ef:
+            ef.write("\n".join(existing_lines) + "\n")
 
 
 def _health(host: str, port: int) -> dict | None:
@@ -166,18 +196,14 @@ def start_backend(host: str, port: int, wait: float = 60.0):
             entered_key = ""
         if entered_key:
             env["GEMINI_API_KEY"] = entered_key
-            env_path = os.path.join(HERE, ".env")
-            existing_lines = []
-            if os.path.isfile(env_path):
-                with open(env_path, encoding="utf-8") as ef:
-                    existing_lines = [l for l in ef.read().splitlines() if not l.strip().startswith("GEMINI_API_KEY=")]
-            existing_lines.insert(0, f"GEMINI_API_KEY={entered_key}")
-            with open(env_path, "w", encoding="utf-8") as ef:
-                ef.write("\n".join(existing_lines) + "\n")
-            print(f"Saved GEMINI_API_KEY to {env_path}")
+            _save_api_key(entered_key)
+            print(f"Saved GEMINI_API_KEY to {os.path.join(HERE, '.env')}")
         else:
             print("WARNING: GEMINI_API_KEY not provided - "
                   "the backend will reject connections unless you pass --api-key.")
+    else:
+        # Ensure HERE/.env also has the active key so pydantic_settings in cwd=HERE reads it
+        _save_api_key(env["GEMINI_API_KEY"])
 
     print(f"Starting backend on http://{host}:{port} (log: {BACKEND_LOG}) ...")
     log = open(BACKEND_LOG, "w", encoding="utf-8")
@@ -285,6 +311,7 @@ def _run_interactive_loop(args) -> int:
     print("  • Enter an audio file path (.mp3, .wav, .m4a, .ogg, .flac, .aac, .pcm, etc.)")
     print("  • Type 'mic' (or 'voice' / 'record 5') to speak live with your normal voice")
     print("  • Or type Sinhala/Tamil text directly")
+    print("  • Type 'key <YOUR_GEMINI_API_KEY>' to update your Gemini API key")
     print("  • Type 'exit' or 'quit' to stop.\n")
     turn_idx = 0
     while True:
@@ -297,6 +324,18 @@ def _run_interactive_loop(args) -> int:
             continue
         if raw.lower() in ("exit", "quit"):
             break
+        if raw.lower() == "key" or raw.lower().startswith("key "):
+            new_key = raw[3:].strip()
+            if not new_key:
+                try:
+                    new_key = input("Paste new GEMINI_API_KEY = ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    new_key = ""
+            if new_key:
+                _save_api_key(new_key)
+                args.api_key = new_key
+                print("Updated GEMINI_API_KEY for this session and saved to .env!\n")
+            continue
 
         turn_idx += 1
         base, ext = os.path.splitext(args.output)
@@ -345,6 +384,8 @@ def _run_interactive_loop(args) -> int:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if not args.api_key:
+        args.api_key = _read_env_file().get("GEMINI_API_KEY", "")
 
     # Resolve positional input if given
     if args.input and args.audio is None and args.text is None and not args.mic:

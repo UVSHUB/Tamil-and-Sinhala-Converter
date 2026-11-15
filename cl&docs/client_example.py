@@ -54,14 +54,17 @@ def _bootstrap_from_github_and_run() -> int:
     else:
         cache_root = os.path.join(os.path.expanduser("~"), ".sintam_project")
         project_dir = os.path.join(cache_root, "Tamil-and-Sinhala-Converter-main")
-        if not os.path.isfile(os.path.join(project_dir, "backend", "main.py")):
-            print("Downloading SinTam backend & client from GitHub (UVSHUB/Tamil-and-Sinhala-Converter) ...")
+        try:
+            print("Fetching latest SinTam backend & client from GitHub (UVSHUB/Tamil-and-Sinhala-Converter) ...")
             os.makedirs(cache_root, exist_ok=True)
             with urllib.request.urlopen(GITHUB_ZIP_URL, timeout=60) as resp:
                 zip_bytes = resp.read()
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
                 zf.extractall(cache_root)
-            print(f"Downloaded project to: {project_dir}")
+            print(f"Project ready at: {project_dir}")
+        except Exception as exc:
+            if not os.path.isfile(os.path.join(project_dir, "backend", "main.py")):
+                raise RuntimeError(f"Could not download project from GitHub: {exc}") from exc
 
     cmd = [sys.executable, os.path.join(project_dir, "cli.py"), "--run-backend", "--play"]
     if len(sys.argv) > 1:

@@ -24,7 +24,7 @@ from google import genai
 from google.genai import types
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
-from backend.websocket.continuous_stream_handler import create_genai_client
+from backend.websocket.continuous_stream_handler import create_genai_client, is_gemini_api_key
 
 logger = logging.getLogger("backend")
 
@@ -164,7 +164,7 @@ async def handle_auto_translation_stream(
     Handles real-time live bilingual Sinhala <-> Tamil voice translation via a single unified
     Gemini Live session, matching the instant sub-second turnaround of the Gemini Mobile App.
     """
-    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
+    final_api_key = api_key if is_gemini_api_key(api_key) else settings.GEMINI_API_KEY
     if not final_api_key:
         await client_ws.send_json({
             "type": "status",

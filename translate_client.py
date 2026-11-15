@@ -530,8 +530,19 @@ def _handle_text(raw: str, session: TranslationSession, verbose: bool = True) ->
         return
     kind, payload = msg.get("type"), msg.get("payload", {})
     if kind == "status":
+        status_msg = payload.get("message", "")
         if verbose:
-            print(f"  [server] {payload.get('message', '')}")
+            print(f"  [server] {status_msg}")
+        lower_msg = status_msg.lower()
+        if (
+            status_msg.startswith("ERROR:")
+            or "credits are depleted" in lower_msg
+            or "quota exceeded" in lower_msg
+            or "translator unavailable" in lower_msg
+            or "api key is invalid" in lower_msg
+            or "api_key_invalid" in lower_msg
+        ):
+            session.closed_reason = status_msg
     elif kind == "lang_detected":
         session.detected = f"{payload.get('source')} -> {payload.get('target')}"
     elif kind == "transcription":
@@ -593,6 +604,8 @@ async def _receive_loop(
             session.audio.extend(_audio_frames(message))
         else:
             _handle_text(message, session)
+            if session.closed_reason:
+                return
 
 
 async def translate_audio(
