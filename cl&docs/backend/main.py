@@ -1,18 +1,29 @@
+import base64
+import io
 import logging
 import uvicorn
 import os
 import sqlite3
 import secrets
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Security, HTTPException, status, Query, Depends
+import wave
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Security, HTTPException, status, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
+from google import genai
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
 from backend.websocket.stream_handler import handle_translation_stream
 from backend.websocket.auto_stream_handler import handle_auto_translation_stream
-from backend.websocket.continuous_stream_handler import handle_continuous_translation_stream
+from backend.websocket.continuous_stream_handler import (
+    create_genai_client,
+    detect_audio_mime,
+    handle_continuous_translation_stream,
+    pcm_to_wav,
+    synthesize_tts_audio,
+    transcribe_and_translate_wav,
+)
 from backend.websocket.live_interpreter_handler import handle_live_interpreter_stream
 
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -97,6 +108,90 @@ async def generate_api_key():
     conn.close()
     
     return {"api_key": new_key}
+
+
+@app.post("/api/v1/translate-audio", tags=["Translation"])
+async def translate_audio_endpoint(
+    request: Request,
+    target: str = Query("Tamil"),
+    source: str = Query("Auto-Detect"),
+    voice: str = Query("Aoede"),
+    api_key: str | None = Query(None),
+):
+    """
+    Translates an audio file (.mp3, .wav, .m4a, .ogg, .flac, .aac, .webm, or .pcm) via REST
+    and returns both the transcribed/translated text and the synthesized voice output as base64 WAV.
+    Accepts either:
+      - JSON body: {"file_path": "/path/to/file.mp3", "target": "Tamil", "voice": "Aoede"}
+      - JSON body: {"audio_base64": "...", "mime_type": "audio/mp3", "target": "Tamil"}
+      - Raw binary audio bytes in the request body
+    """
+    final_api_key = api_key if (api_key and api_key.startswith("AIza")) else settings.GEMINI_API_KEY
+    if not final_api_key:
+        raise HTTPException(status_code=401, detail="GEMINI_API_KEY is not configured.")
+
+    raw_bytes = b""
+    filename = ""
+    explicit_mime = ""
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        body = await request.json()
+        target = body.get("target", target)
+        source = body.get("source", source)
+        voice = body.get("voice", voice)
+        explicit_mime = body.get("mime_type", "")
+        if body.get("file_path"):
+            fpath = os.path.expanduser(str(body["file_path"]).strip().strip('"').strip("'"))
+            if not os.path.isfile(fpath):
+                raise HTTPException(status_code=404, detail=f"Audio file not found: {fpath}")
+            filename = fpath
+            with open(fpath, "rb") as f:
+                raw_bytes = f.read()
+        elif body.get("audio_base64"):
+            raw_bytes = base64.b64decode(body["audio_base64"])
+    else:
+        raw_bytes = await request.body()
+        if content_type.startswith("audio/"):
+            explicit_mime = content_type.split(";")[0].strip()
+
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="No audio data or file_path provided.")
+
+    mime_type = explicit_mime or detect_audio_mime(raw_bytes, filename)
+    ai_client = create_genai_client(final_api_key)
+    res_data = await transcribe_and_translate_wav(
+        ai_client, raw_bytes, target_lang=target, source_lang=source, mime_type=mime_type
+    )
+    if not res_data:
+        raise HTTPException(status_code=502, detail="Failed to transcribe/translate audio.")
+
+    transcription = (res_data.get("transcription") or "").strip()
+    translation = (res_data.get("translation") or "").strip()
+    detected_lang = res_data.get("detected_language") or source
+
+    tts_pcm = await synthesize_tts_audio(ai_client, translation, voice_name=voice)
+    wav_out_b64 = ""
+    if tts_pcm:
+        if tts_pcm[:4] == b"RIFF":
+            wav_out_bytes = tts_pcm
+        else:
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(tts_pcm)
+            wav_out_bytes = buf.getvalue()
+        wav_out_b64 = base64.b64encode(wav_out_bytes).decode("ascii")
+
+    return {
+        "detected_language": detected_lang,
+        "target_language": target,
+        "transcription": transcription,
+        "translation": translation,
+        "audio_wav_base64": wav_out_b64,
+        "sample_rate": 24000,
+    }
 # ----------------------------------------
 
 # Serve React Frontend (if built and present)

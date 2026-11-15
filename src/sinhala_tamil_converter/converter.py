@@ -214,3 +214,51 @@ class SinhalaTamilConverter:
             for t in texts
         ]
         return await asyncio.gather(*tasks)
+
+    def translate_audio(
+        self,
+        audio_path: str,
+        source: Union[str, Language] = "auto",
+        target: Optional[Union[str, Language]] = None,
+        voice: str = "Aoede",
+        output_wav: Optional[str] = "output.wav",
+    ) -> TranslationResult:
+        """Transcribe and translate a .wav / .pcm audio file and save translated voice output.
+
+        Args:
+            audio_path: Path to the .wav or .pcm speech recording.
+            source: Source language ('sinhala', 'tamil', or 'auto').
+            target: Target language ('sinhala' or 'tamil').
+            voice: Gemini TTS voice name (default: 'Aoede').
+            output_wav: Path to save the synthesized translated voice WAV file.
+
+        Returns:
+            TranslationResult: Contains `.transcription`, `.text` (translated text),
+            `.audio_bytes`, and `.audio_path`.
+        """
+        if not audio_path or not audio_path.strip():
+            raise InvalidInputError("Audio file path cannot be empty.")
+
+        src_lang = None
+        if isinstance(source, Language) and source != Language.UNKNOWN:
+            src_lang = source
+        elif isinstance(source, str) and source.lower() in ("sinhala", "tamil"):
+            src_lang = Language(source.lower())
+
+        tgt_lang = None
+        if isinstance(target, Language) and target != Language.UNKNOWN:
+            tgt_lang = target
+        elif isinstance(target, str) and target.lower() in ("sinhala", "tamil"):
+            tgt_lang = Language(target.lower())
+        elif src_lang is not None:
+            tgt_lang = Language.TAMIL if src_lang == Language.SINHALA else Language.SINHALA
+
+        if hasattr(self.backend, "translate_audio"):
+            return self.backend.translate_audio(
+                audio_path=audio_path,
+                source_lang=src_lang,
+                target_lang=tgt_lang,
+                voice=voice,
+                output_wav=output_wav,
+            )
+        raise NotImplementedError("Current backend does not support audio file translation.")

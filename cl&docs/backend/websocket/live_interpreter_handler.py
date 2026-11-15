@@ -28,6 +28,7 @@ Wire protocol (unchanged, so the web app and CLI client keep working):
 
 import array
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -38,6 +39,17 @@ from google.genai import types
 
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
+from backend.websocket.continuous_stream_handler import (
+    BYTES_PER_SECOND,
+    MAX_CHUNK_BYTES,
+    MIN_CHUNK_BYTES,
+    PAUSE_SILENCE_SECONDS,
+    create_genai_client,
+    detect_audio_mime,
+    pcm_to_wav,
+    synthesize_tts_audio,
+    transcribe_and_translate_wav,
+)
 
 logger = logging.getLogger("backend")
 
@@ -121,12 +133,13 @@ def build_instruction(target: str, history: list[dict] | None = None) -> str:
 
 
 def build_config(target: str, voice: str, history: list[dict] | None = None,
-                 engine: str | None = None) -> types.LiveConnectConfig:
+                 engine: str | None = None, model_name: str | None = None) -> types.LiveConnectConfig:
     transcription = dict(
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
     )
-    if is_simultaneous(engine):
+    use_translate_config = is_simultaneous(engine) and (model_name is None or "translate" in model_name.lower())
+    if use_translate_config:
         # The translate model is driven by TranslationConfig only (no prompt / voice options)
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -164,13 +177,21 @@ async def handle_live_interpreter_stream(
 
     simultaneous = is_simultaneous()
     model = settings.SIMULTANEOUS_MODEL if simultaneous else settings.INTERPRETER_MODEL
-    ai_client = genai.Client(api_key=final_api_key)
-    state = {"target": normalize_target(target), "voice": voice or "Aoede", "history": [], "source": None}
+    ai_client = create_genai_client(final_api_key)
+    state = {
+        "target": normalize_target(target),
+        "voice": voice or "Aoede",
+        "history": [],
+        "source": None,
+        "turns_completed": 0,
+        "live_connected": False,
+    }
 
     audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=500)
     text_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=20)
     client_disconnected = asyncio.Event()
     restart_session = asyncio.Event()
+    fallback_lock = asyncio.Lock()
 
     # ── Sending helpers ───────────────────────────────────────────────────────
     async def send_json(payload: dict, broadcast: bool = True) -> None:
@@ -198,17 +219,102 @@ async def handle_live_interpreter_stream(
     async def status(message: str) -> None:
         await send_json({"type": "status", "payload": {"message": message}}, broadcast=False)
 
+    async def translate_typed_text(phrase: str, target_now: str) -> str:
+        """Translate typed text across candidate Gemini models."""
+        prompt = (f"Translate the following text into {target_now}. It may be Sinhala, Tamil or English. "
+                  f"Output ONLY the {target_now} translation, nothing else.\n\n{phrase}")
+        candidate_models = [
+            settings.TRANSLATE_MODEL,
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-flash-latest",
+        ]
+        last_err = None
+        for m in candidate_models:
+            try:
+                response = await asyncio.to_thread(
+                    ai_client.models.generate_content, model=m, contents=prompt
+                )
+                txt = (response.text or "").strip()
+                if txt:
+                    return txt
+            except Exception as exc:
+                last_err = exc
+                continue
+        if last_err:
+            raise last_err
+        return ""
+
+    async def handle_typed_text_direct(phrase: str) -> None:
+        target_now = state["target"]
+        await send_json({"type": "transcription",
+                         "payload": {"speaker": "user", "text": phrase, "detected_lang": detect_language(phrase)}})
+        try:
+            translation = await translate_typed_text(phrase, target_now)
+        except Exception as err:
+            logger.warning(f"Typed text translation failed: {err}")
+            await status("Typed text could not be translated (Gemini request failed).")
+            return
+        await send_json({"type": "translation",
+                         "payload": {"speaker": "ai", "text": translation, "target_lang": target_now}})
+        tts_bytes = await synthesize_tts_audio(ai_client, translation, state["voice"])
+        if tts_bytes:
+            await send_audio(tts_bytes)
+        state["turns_completed"] += 1
+        await send_json({"type": "turn_complete", "payload": {"user_text": phrase, "ai_text": translation}})
+
+    async def ensure_eof_translated(pcm_bytes: bytes, turns_before: int) -> None:
+        """Guarantees that audio followed by audio_eof is transcribed, translated, and spoken
+        even if the Live session has not connected or did not emit a response."""
+        if state["live_connected"]:
+            await asyncio.sleep(2.2)
+        if client_disconnected.is_set() or state["turns_completed"] > turns_before:
+            return
+        if not pcm_bytes or is_silent(pcm_bytes):
+            return
+        async with fallback_lock:
+            if client_disconnected.is_set() or state["turns_completed"] > turns_before:
+                return
+            target_now = state["target"]
+            res_data = await transcribe_and_translate_wav(ai_client, pcm_to_wav(pcm_bytes), target_now)
+            if not res_data or state["turns_completed"] > turns_before:
+                return
+            heard = (res_data.get("transcription") or "").strip()
+            said = (res_data.get("translation") or "").strip()
+            lang = res_data.get("detected_language") or detect_language(heard) or "Sinhala"
+            if not heard and not said:
+                return
+            state["source"] = lang
+            await send_json({"type": "lang_detected", "payload": {"source": lang, "target": target_now}})
+            if heard:
+                await send_json({"type": "transcription",
+                                 "payload": {"speaker": "user", "text": heard, "detected_lang": lang}})
+            if said:
+                await send_json({"type": "translation",
+                                 "payload": {"speaker": "ai", "text": said, "target_lang": target_now}})
+                tts_bytes = await synthesize_tts_audio(ai_client, said, state["voice"])
+                if tts_bytes:
+                    await send_audio(tts_bytes)
+            state["turns_completed"] += 1
+            await send_json({"type": "turn_complete", "payload": {"user_text": heard, "ai_text": said}})
+
     # ── Task 1: read audio / text / commands from the client ────────────────
     async def read_client() -> None:
+        client_pcm = bytearray()
         try:
             while not client_disconnected.is_set():
                 msg = await client_ws.receive()
                 if msg.get("type") == "websocket.disconnect":
                     break
                 if msg.get("bytes"):
+                    chunk = msg["bytes"]
+                    if not is_silent(chunk) or client_pcm:
+                        client_pcm.extend(chunk)
                     if audio_queue.full():
                         audio_queue.get_nowait()  # drop the oldest frame, keep latency low
-                    audio_queue.put_nowait(msg["bytes"])
+                    audio_queue.put_nowait(chunk)
                 elif msg.get("text"):
                     raw = msg["text"].strip()
                     try:
@@ -216,8 +322,11 @@ async def handle_live_interpreter_stream(
                     except json.JSONDecodeError:
                         data = None
                     if not isinstance(data, dict):
-                        if raw and not text_queue.full():
-                            text_queue.put_nowait(raw)  # plain text phrase to translate
+                        if raw:
+                            if simultaneous or not state["live_connected"]:
+                                asyncio.create_task(handle_typed_text_direct(raw))
+                            elif not text_queue.full():
+                                text_queue.put_nowait(raw)  # plain text phrase to translate
                         continue
                     if data.get("type") == "set_target":
                         new_target = normalize_target(data.get("target", "Tamil"))
@@ -234,57 +343,141 @@ async def handle_live_interpreter_stream(
                             if not simultaneous:  # the translate model has a fixed voice
                                 restart_session.set()
                         await status(f"Voice set to {state['voice']}")
+                    elif data.get("type") == "audio_eof":
+                        pcm_snapshot = bytes(client_pcm)
+                        client_pcm.clear()
+                        turns_before = state["turns_completed"]
+                        if not audio_queue.full():
+                            audio_queue.put_nowait(b"__AUDIO_EOF__")
+                        if pcm_snapshot:
+                            asyncio.create_task(ensure_eof_translated(pcm_snapshot, turns_before))
+                    elif data.get("type") == "audio_file":
+                        raw_audio = base64.b64decode(data.get("data_b64", ""))
+                        mime = data.get("mime_type") or detect_audio_mime(raw_audio)
+                        if raw_audio:
+                            res_data = await transcribe_and_translate_wav(
+                                ai_client, raw_audio, target_lang=state["target"], mime_type=mime
+                            )
+                            if res_data:
+                                heard = (res_data.get("transcription") or "").strip()
+                                said = (res_data.get("translation") or "").strip()
+                                lang = res_data.get("detected_language") or detect_language(heard) or "Sinhala"
+                                state["source"] = lang
+                                await send_json({"type": "lang_detected", "payload": {"source": lang, "target": state["target"]}})
+                                if heard:
+                                    await send_json({"type": "transcription", "payload": {"speaker": "user", "text": heard, "detected_lang": lang}})
+                                if said:
+                                    await send_json({"type": "translation", "payload": {"speaker": "ai", "text": said, "target_lang": state["target"]}})
+                                    tts_bytes = await synthesize_tts_audio(ai_client, said, state["voice"])
+                                    if tts_bytes:
+                                        await send_audio(tts_bytes)
+                                state["turns_completed"] += 1
+                                await send_json({"type": "turn_complete", "payload": {"user_text": heard, "ai_text": said}})
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             client_disconnected.set()
 
+    async def run_chunked_fallback() -> None:
+        """Continuous rolling-chunk fallback when Gemini Live WebSocket models are unavailable."""
+        await status(f"Translator ready -> {state['target']}. Speak in Sinhala, Tamil or English.")
+        await send_json({"type": "lang_detected",
+                         "payload": {"source": state["source"] or "Auto-Detect", "target": state["target"]}})
+        accumulated = bytearray()
+        silence_bytes = 0
+        silence_threshold = int(BYTES_PER_SECOND * PAUSE_SILENCE_SECONDS)
+        while not client_disconnected.is_set():
+            try:
+                chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.2)
+            except asyncio.TimeoutError:
+                if len(accumulated) >= MIN_CHUNK_BYTES:
+                    slice_bytes = bytes(accumulated)
+                    accumulated.clear()
+                    silence_bytes = 0
+                    turns_before = state["turns_completed"]
+                    asyncio.create_task(ensure_eof_translated(slice_bytes, turns_before))
+                continue
+            if chunk == b"__AUDIO_EOF__":
+                if len(accumulated) > 0:
+                    slice_bytes = bytes(accumulated)
+                    accumulated.clear()
+                    silence_bytes = 0
+                    turns_before = state["turns_completed"]
+                    asyncio.create_task(ensure_eof_translated(slice_bytes, turns_before))
+                continue
+            if not is_silent(chunk):
+                silence_bytes = 0
+                accumulated.extend(chunk)
+            elif len(accumulated) > 0:
+                accumulated.extend(chunk)
+                silence_bytes += len(chunk)
+            if len(accumulated) >= MAX_CHUNK_BYTES or (len(accumulated) >= MIN_CHUNK_BYTES and silence_bytes >= silence_threshold):
+                slice_bytes = bytes(accumulated)
+                accumulated.clear()
+                silence_bytes = 0
+                turns_before = state["turns_completed"]
+                asyncio.create_task(ensure_eof_translated(slice_bytes, turns_before))
+
     # ── Task 2: one Gemini Live session at a time (reconnects when needed) ───
     async def run_sessions() -> None:
+        candidate_models = []
+        for m in (
+            model,
+            settings.INTERPRETER_MODEL,
+            "gemini-2.0-flash-live-001",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            "gemini-live-2.5-flash-preview",
+        ):
+            if m and m not in candidate_models:
+                candidate_models.append(m)
+
+        model_idx = 0
         failures = 0
         while not client_disconnected.is_set():
             restart_session.clear()
             target_now = state["target"]
-            config = build_config(target_now, state["voice"], state["history"])
+            active_model = candidate_models[model_idx % len(candidate_models)]
+            config = build_config(target_now, state["voice"], state["history"], model_name=active_model)
             try:
-                async with ai_client.aio.live.connect(model=model, config=config) as session:
+                async with ai_client.aio.live.connect(model=active_model, config=config) as session:
                     failures = 0
-                    mode = "simultaneous" if simultaneous else "turn-based"
-                    logger.info(f"Live interpreter session open (room={room_id}, model={model}, {mode}, target={target_now})")
-                    await status(f"Live interpreter ready [{model}] -> {target_now}. Speak in Sinhala, Tamil or English.")
+                    state["live_connected"] = True
+                    mode = "simultaneous" if ("translate" in active_model.lower() and simultaneous) else "turn-based"
+                    logger.info(f"Live interpreter session open (room={room_id}, model={active_model}, {mode}, target={target_now})")
+                    await status(f"Live interpreter ready [{active_model}] -> {target_now}. Speak in Sinhala, Tamil or English.")
                     await send_json({"type": "lang_detected",
                                      "payload": {"source": state["source"] or "Auto-Detect", "target": target_now}})
                     await run_one_session(session, target_now)
             except asyncio.CancelledError:
                 raise
             except Exception as err:
+                state["live_connected"] = False
                 if client_disconnected.is_set():
                     return
                 failures += 1
+                model_idx += 1
                 text = str(err)
-                logger.warning(f"Live interpreter session error ({failures}/{MAX_RECONNECT_ATTEMPTS}): {text}")
+                logger.warning(f"Live interpreter session error ({failures}/{ len(candidate_models)}, model={active_model}): {text}")
                 if "RESOURCE_EXHAUSTED" in text or "429" in text or "quota" in text.lower():
                     await status("Gemini quota exceeded for this API key. Wait a while or use a key with billing enabled.")
                     return
-                if failures >= MAX_RECONNECT_ATTEMPTS:
-                    await status(f"Translator unavailable: {text[:200]}")
+                if failures >= len(candidate_models):
+                    logger.info("Switching to chunked audio translation fallback.")
+                    await run_chunked_fallback()
                     return
-                await status("Reconnecting to Gemini ...")
-                await asyncio.sleep(min(2 ** failures, 10))
-
-    async def translate_typed_text(phrase: str, target_now: str) -> str:
-        """The simultaneous model only accepts audio, so typed text uses a normal text request."""
-        prompt = (f"Translate the following text into {target_now}. It may be Sinhala, Tamil or English. "
-                  f"Output ONLY the {target_now} translation, nothing else.\n\n{phrase}")
-        response = await asyncio.to_thread(
-            ai_client.models.generate_content, model=settings.TRANSLATE_MODEL, contents=prompt
-        )
-        return (response.text or "").strip()
+                await asyncio.sleep(0.3)
 
     async def run_one_session(session, target_now: str) -> None:
         """Pump audio/text into the session and results back to the client until
         the client leaves, the target/voice changes, or the session ends."""
-        turn = {"heard": "", "said": "", "last_output": 0.0}
+        turn = {
+            "heard": "",
+            "said": "",
+            "last_output": 0.0,
+            "pcm": bytearray(),
+            "audio_sent": False,
+            "turns_completed": 0,
+        }
         # Loops also check this flag: on Python 3.11, asyncio.wait_for() can swallow a
         # cancel() that arrives together with a new audio packet, which would leave the
         # task running and block the switch to a new session forever.
@@ -292,7 +485,12 @@ async def handle_live_interpreter_stream(
 
         async def finish_turn() -> None:
             heard, said = turn["heard"].strip(), turn["said"].strip()
+            had_audio = turn["audio_sent"]
             turn["heard"], turn["said"] = "", ""
+            turn["pcm"].clear()
+            turn["audio_sent"] = False
+            turn["turns_completed"] += 1
+            state["turns_completed"] += 1
             if heard or said:
                 logger.info(f"[{room_id}] {state['source']} -> {target_now}: {heard!r} => {said!r}")
                 if heard:
@@ -300,6 +498,39 @@ async def handle_live_interpreter_stream(
                 if said:
                     state["history"].append({"speaker": "interpreter", "text": said})
                 state["history"] = state["history"][-HISTORY_TURNS * 2:]
+                if said and not had_audio:
+                    tts_bytes = await synthesize_tts_audio(ai_client, said, state["voice"])
+                    if tts_bytes:
+                        await send_audio(tts_bytes)
+            await send_json({"type": "turn_complete", "payload": {"user_text": heard, "ai_text": said}})
+
+        async def fallback_process_pcm(pcm_bytes: bytes) -> None:
+            """If Gemini Live did not emit a translation after audio_eof, transcribe & translate the WAV directly."""
+            await asyncio.sleep(2.5)
+            if stopping.is_set() or turn["turns_completed"] > 0 or turn["said"].strip():
+                return
+            if not pcm_bytes or is_silent(pcm_bytes):
+                return
+            res_data = await transcribe_and_translate_wav(ai_client, pcm_to_wav(pcm_bytes), target_now)
+            if not res_data or turn["turns_completed"] > 0 or turn["said"].strip():
+                return
+            heard = (res_data.get("transcription") or "").strip()
+            said = (res_data.get("translation") or "").strip()
+            lang = res_data.get("detected_language") or detect_language(heard) or "Sinhala"
+            if not heard and not said:
+                return
+            state["source"] = lang
+            await send_json({"type": "lang_detected", "payload": {"source": lang, "target": target_now}})
+            if heard:
+                await send_json({"type": "transcription",
+                                 "payload": {"speaker": "user", "text": heard, "detected_lang": lang}})
+            if said:
+                await send_json({"type": "translation",
+                                 "payload": {"speaker": "ai", "text": said, "target_lang": target_now}})
+                tts_bytes = await synthesize_tts_audio(ai_client, said, state["voice"])
+                if tts_bytes:
+                    await send_audio(tts_bytes)
+            turn["turns_completed"] += 1
             await send_json({"type": "turn_complete", "payload": {"user_text": heard, "ai_text": said}})
 
         async def handle_typed_text(phrase: str) -> None:
@@ -314,6 +545,9 @@ async def handle_live_interpreter_stream(
                     return
                 await send_json({"type": "translation",
                                  "payload": {"speaker": "ai", "text": translation, "target_lang": target_now}})
+                tts_bytes = await synthesize_tts_audio(ai_client, translation, state["voice"])
+                if tts_bytes:
+                    await send_audio(tts_bytes)
                 await send_json({"type": "turn_complete", "payload": {"user_text": phrase, "ai_text": translation}})
             else:
                 turn["heard"] = phrase
@@ -334,7 +568,18 @@ async def handle_live_interpreter_stream(
                     asyncio.create_task(handle_typed_text(text_queue.get_nowait()))
                 try:
                     chunk = await asyncio.wait_for(audio_queue.get(), timeout=FRAME_SECONDS)
+                    if chunk == b"__AUDIO_EOF__":
+                        pcm_snapshot = bytes(turn["pcm"])
+                        for _ in range(10):
+                            await session.send_realtime_input(
+                                audio=types.Blob(data=SILENCE_FRAME, mime_type=f"audio/pcm;rate={SAMPLE_RATE}")
+                            )
+                        if pcm_snapshot:
+                            asyncio.create_task(fallback_process_pcm(pcm_snapshot))
+                        continue
                     last_audio = time.monotonic()
+                    if not is_silent(chunk) or turn["pcm"]:
+                        turn["pcm"].extend(chunk)
                 except asyncio.TimeoutError:
                     gap = time.monotonic() - last_audio
                     if gap < SILENCE_GAP_SECONDS or gap > SILENCE_GAP_SECONDS + SILENCE_AFTER_SPEECH_SECONDS:
@@ -389,6 +634,7 @@ async def handle_live_interpreter_stream(
             if sc.model_turn:
                 for part in sc.model_turn.parts:
                     if part.inline_data and part.inline_data.data:
+                        turn["audio_sent"] = True
                         await send_audio(part.inline_data.data)
 
             sentence_done = simultaneous and turn["said"].rstrip().endswith(SENTENCE_END)

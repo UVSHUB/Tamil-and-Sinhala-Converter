@@ -170,8 +170,20 @@ def port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def resolve_free_port(port: int) -> int:
+    if health(port) or not port_in_use(port):
+        return port
+    for candidate in range(port + 1, port + 50):
+        if not port_in_use(candidate):
+            print(f"      Port {port} is busy - automatically switching to port {candidate}.")
+            return candidate
+    return port
+
+
 def start_backend(port: int) -> subprocess.Popen:
-    if port_in_use(port):
+    if health(port):
+        print(f"      SinTam backend is already running on port {port}.")
+    elif port_in_use(port):
         fail(f"Port {port} is already in use (maybe the project is already running in another window).\n"
              f"       Close it, or use another port:  python run_project.py --port {port + 10}")
     env = os.environ.copy()
@@ -229,6 +241,7 @@ def main() -> None:
     if args.skip_frontend:
         print("      Skipped (--skip-frontend).")
 
+    args.port = resolve_free_port(args.port)
     step(4, f"Starting the server on port {args.port}")
     proc = start_backend(args.port)
     url = f"http://localhost:{args.port}"

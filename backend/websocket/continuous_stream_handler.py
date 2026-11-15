@@ -12,10 +12,12 @@ Solves the continuous speech problem:
 """
 
 import asyncio
+import base64
 import io
 import json
 import logging
 import math
+import os
 import struct
 import time
 import wave
@@ -69,6 +71,160 @@ def pcm_to_wav(pcm_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
+MIME_BY_EXT = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mp3",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".flac": "audio/flac",
+    ".webm": "audio/webm",
+    ".3gp": "audio/3gpp",
+    ".3gpp": "audio/3gpp",
+    ".amr": "audio/amr",
+    ".aiff": "audio/aiff",
+    ".aif": "audio/aiff",
+    ".aifc": "audio/aiff",
+    ".pcm": "audio/pcm",
+    ".raw": "audio/pcm",
+}
+
+
+def detect_audio_mime(raw: bytes = b"", filename: str = "") -> str:
+    """Detects the MIME type of an audio file from its filename extension or magic header bytes."""
+    if filename:
+        ext = os.path.splitext(filename.lower())[1]
+        if ext in MIME_BY_EXT and ext not in (".pcm", ".raw"):
+            return MIME_BY_EXT[ext]
+        if ext in (".pcm", ".raw") and raw[:4] != b"RIFF":
+            return "audio/pcm"
+    if raw[:4] == b"RIFF":
+        return "audio/wav"
+    if raw[:3] == b"ID3" or (len(raw) >= 2 and raw[0] == 0xFF and (raw[1] & 0xE0) == 0xE0):
+        return "audio/mp3"
+    if raw[:4] == b"OggS":
+        return "audio/ogg"
+    if raw[:4] == b"fLaC":
+        return "audio/flac"
+    if len(raw) >= 8 and raw[4:8] == b"ftyp":
+        return "audio/mp4"
+    if raw[:4] == b"\x1a\x45\xdf\xa3":
+        return "audio/webm"
+    return "audio/pcm"
+
+
+def create_genai_client(api_key: str, api_version: str = "v1beta") -> genai.Client:
+    """Create a Google GenAI client with v1beta and clean base_url (fixes HTTP 404 in google-genai >= 3.0)."""
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            base_url="https://generativelanguage.googleapis.com",
+            api_version=api_version,
+        ),
+    )
+
+
+async def transcribe_and_translate_wav(
+    ai_client: genai.Client,
+    wav_data: bytes,
+    target_lang: str = "Tamil",
+    source_lang: str = "Auto-Detect",
+    mime_type: str = "audio/wav",
+) -> dict | None:
+    """Transcribes speech from audio bytes (WAV, MP3, M4A, OGG, FLAC, AAC, WEBM) and translates it into target_lang using Gemini."""
+    if mime_type == "audio/pcm":
+        wav_data = pcm_to_wav(wav_data)
+        mime_type = "audio/wav"
+    translate_models = [
+        settings.TRANSLATE_MODEL,
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+    ]
+    source_hint = (
+        "Detect whether the speaker spoke Sinhala, Tamil, or English."
+        if source_lang.lower() in ("auto", "auto-detect", "")
+        else f"The speaker is speaking {source_lang} (possibly mixed with English loanwords)."
+    )
+    prompt = (
+        "You are an expert real-time voice translator in Sri Lanka. "
+        "The user speaks naturally in Sinhala, Tamil, or English (including Singlish and Tanglish). "
+        f"1. {source_hint} "
+        "2. Transcribe the speech text verbatim. "
+        f"3. Translate the meaning accurately and fluently into {target_lang}. "
+        "If the speaker already spoke the target language, keep it natural and correct in that language. "
+        "If the audio is silent, background coughs, or noise, leave transcription and translation as empty strings. "
+        "Respond ONLY with valid JSON with keys: "
+        '{"detected_language": "Sinhala"|"Tamil"|"English", "transcription": "...", "translation": "..."}'
+    )
+    for model_name in translate_models:
+        try:
+            res = await asyncio.to_thread(
+                ai_client.models.generate_content,
+                model=model_name,
+                contents=[
+                    types.Part.from_bytes(data=wav_data, mime_type=mime_type),
+                    prompt,
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+            text = (res.text or "").strip()
+            if text:
+                return json.loads(text)
+        except Exception as ex:
+            logger.debug(f"Model {model_name} error: {ex}, trying fallback...")
+            continue
+    return None
+
+
+async def synthesize_tts_audio(
+    ai_client: genai.Client,
+    text: str,
+    voice_name: str = "Aoede",
+) -> bytes | None:
+    """Synthesizes 24kHz 16-bit mono PCM audio for `text` using Gemini TTS models."""
+    if not text or not text.strip():
+        return None
+    tts_models = [
+        settings.TTS_MODEL,
+        "gemini-2.5-flash-preview-tts",
+        "gemini-3.8-flash-lite-tts",
+        "gemini-3.1-flash-tts-preview",
+        "gemini-3.8-flash-tts",
+    ]
+    for tts_model in tts_models:
+        try:
+            tts_res = await asyncio.to_thread(
+                ai_client.models.generate_content,
+                model=tts_model,
+                contents=text,
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name or "Aoede")
+                        )
+                    ),
+                ),
+            )
+            if tts_res.candidates and tts_res.candidates[0].content:
+                for p in tts_res.candidates[0].content.parts:
+                    if p.inline_data and p.inline_data.data:
+                        return p.inline_data.data
+        except Exception as tts_err:
+            logger.debug(f"TTS {tts_model} error: {tts_err}, trying fallback...")
+            continue
+    return None
+
+
 async def handle_continuous_translation_stream(
     client_ws: WebSocket,
     target: str = "Tamil",
@@ -85,7 +241,7 @@ async def handle_continuous_translation_stream(
         await client_ws.close(code=1008, reason="API key missing")
         return
 
-    ai_client = genai.Client(api_key=final_api_key)
+    ai_client = create_genai_client(final_api_key)
 
     # State container
     state = {
@@ -169,6 +325,29 @@ async def handle_continuous_translation_stream(
                                 "type": "status",
                                 "payload": {"message": f"TTS Voice set to {state['voice']}"}
                             })
+                        elif msg_type == "audio_eof":
+                            if not audio_queue.full():
+                                audio_queue.put_nowait(b"__AUDIO_EOF__")
+                        elif msg_type == "audio_file":
+                            raw_audio = base64.b64decode(data.get("data_b64", ""))
+                            mime = data.get("mime_type") or detect_audio_mime(raw_audio)
+                            if raw_audio:
+                                res_data = await transcribe_and_translate_wav(
+                                    ai_client, raw_audio, target_lang=state["target_lang"], mime_type=mime
+                                )
+                                if res_data:
+                                    transcription = (res_data.get("transcription") or "").strip()
+                                    translation = (res_data.get("translation") or "").strip()
+                                    detected_lang = res_data.get("detected_language") or "Sinhala"
+                                    await safe_send_json({"type": "lang_detected", "payload": {"source": detected_lang, "target": state["target_lang"]}})
+                                    if transcription:
+                                        await safe_send_json({"type": "transcription", "payload": {"speaker": "user", "text": transcription, "detected_lang": detected_lang}})
+                                    if translation:
+                                        await safe_send_json({"type": "translation", "payload": {"speaker": "ai", "text": translation, "target_lang": state["target_lang"]}})
+                                        tts_bytes = await synthesize_tts_audio(ai_client, translation, state["voice"])
+                                        if tts_bytes:
+                                            await safe_send_bytes(tts_bytes)
+                                    await safe_send_json({"type": "turn_complete", "payload": {"user_text": transcription, "ai_text": translation}})
                     except json.JSONDecodeError:
                         pass
         except (WebSocketDisconnect, RuntimeError):
@@ -206,6 +385,17 @@ async def handle_continuous_translation_stream(
 
             if chunk is None:
                 break
+
+            if chunk == b"__AUDIO_EOF__":
+                if len(accumulated_speech) > 0:
+                    state["segment_count"] += 1
+                    seg_id = state["segment_count"]
+                    audio_slice = bytes(accumulated_speech)
+                    accumulated_speech.clear()
+                    silence_bytes = 0
+                    if not process_queue.full():
+                        process_queue.put_nowait((seg_id, audio_slice, state["target_lang"], state["voice"]))
+                continue
 
             rms = calculate_rms(chunk)
             is_voiced = rms >= NOISE_GATE_RMS
@@ -393,8 +583,11 @@ async def handle_continuous_translation_stream(
                 if room_id in manager.rooms and len(manager.rooms[room_id]) > 1:
                     await manager.broadcast_bytes_except(audio_bytes, client_ws, room_id)
 
-            # Signal turn complete for UI
-            turn_payload = {"type": "turn_complete", "payload": {}}
+            # Signal turn complete for UI & CLI clients
+            turn_payload = {
+                "type": "turn_complete",
+                "payload": {"user_text": transcription, "ai_text": translation},
+            }
             await safe_send_json(turn_payload)
             await manager.broadcast_json_except(turn_payload, client_ws, room_id)
 

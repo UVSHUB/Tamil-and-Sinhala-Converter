@@ -24,6 +24,7 @@ from google import genai
 from google.genai import types
 from backend.config.settings import settings
 from backend.websocket.connection_manager import manager
+from backend.websocket.continuous_stream_handler import create_genai_client
 
 logger = logging.getLogger("backend")
 
@@ -173,7 +174,7 @@ async def handle_auto_translation_stream(
         return
 
     model = settings.GEMINI_MODEL
-    ai_client = genai.Client(api_key=final_api_key)
+    ai_client = create_genai_client(final_api_key)
 
     state = {
         "source": "Sinhala",

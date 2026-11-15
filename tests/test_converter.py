@@ -47,6 +47,29 @@ class MockTranslationBackend(BaseTranslationBackend):
     ) -> TranslationResult:
         return self.translate(text, source_lang, target_lang, temperature)
 
+    def translate_audio(
+        self,
+        audio_path: str,
+        source_lang=None,
+        target_lang=None,
+        voice: str = "Aoede",
+        output_wav=None,
+    ) -> TranslationResult:
+        src = source_lang or Language.SINHALA
+        tgt = target_lang or (Language.TAMIL if src == Language.SINHALA else Language.SINHALA)
+        dummy_pcm = b"\x00\x01" * 2400
+        if output_wav:
+            with open(output_wav, "wb") as f:
+                f.write(dummy_pcm)
+        return TranslationResult(
+            text=f"MOCK_AUDIO_{tgt.value.upper()}",
+            source_language=src,
+            target_language=tgt,
+            transcription="ආයුබෝවන්",
+            audio_bytes=dummy_pcm,
+            audio_path=output_wav,
+        )
+
 
 @pytest.fixture
 def mock_converter():
@@ -144,3 +167,17 @@ async def test_batch_translate_async(mock_converter):
     assert len(results) == 2
     assert results[0].text == "MOCK_TAMIL_ආයුබෝවන්"
     assert results[1].text == "MOCK_TAMIL_ස්තූතියි"
+
+
+def test_translate_audio_wav(mock_converter, tmp_path):
+    out_wav = str(tmp_path / "translated_voice.wav")
+    res = mock_converter.translate_audio(
+        "sample_sinhala.wav",
+        source="sinhala",
+        target="tamil",
+        output_wav=out_wav,
+    )
+    assert res.transcription == "ආයුබෝවන්"
+    assert res.text == "MOCK_AUDIO_TAMIL"
+    assert res.audio_path == out_wav
+    assert res.audio_bytes is not None
