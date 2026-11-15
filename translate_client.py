@@ -283,6 +283,120 @@ def load_audio(path: str) -> bytes:
     )
 
 
+def _record_windows_wavein(duration: float | None, output_wav: str, sample_rate: int = IN_RATE) -> str | None:
+    """Record 16-bit mono PCM directly into memory on Windows using winmm.dll waveInOpen (no MCI path limits)."""
+    try:
+        import threading
+
+        winmm = ctypes.windll.winmm
+        WAVE_MAPPER = ctypes.c_uint(-1).value
+        WAVE_FORMAT_PCM = 1
+        WHDR_DONE = 0x00000001
+
+        class WAVEFORMATEX(ctypes.Structure):
+            _fields_ = [
+                ("wFormatTag", ctypes.c_uint16),
+                ("nChannels", ctypes.c_uint16),
+                ("nSamplesPerSec", ctypes.c_uint32),
+                ("nAvgBytesPerSec", ctypes.c_uint32),
+                ("nBlockAlign", ctypes.c_uint16),
+                ("wBitsPerSample", ctypes.c_uint16),
+                ("cbSize", ctypes.c_uint16),
+            ]
+
+        class WAVEHDR(ctypes.Structure):
+            pass
+
+        WAVEHDR._fields_ = [
+            ("lpData", ctypes.c_char_p),
+            ("dwBufferLength", ctypes.c_uint32),
+            ("dwBytesRecorded", ctypes.c_uint32),
+            ("dwUser", ctypes.c_size_t),
+            ("dwFlags", ctypes.c_uint32),
+            ("dwLoops", ctypes.c_uint32),
+            ("lpNext", ctypes.POINTER(WAVEHDR)),
+            ("reserved", ctypes.c_size_t),
+        ]
+
+        wfx = WAVEFORMATEX(
+            WAVE_FORMAT_PCM,
+            1,
+            sample_rate,
+            sample_rate * 2,
+            2,
+            16,
+            0,
+        )
+        hwavein = ctypes.c_void_p(0)
+        res = winmm.waveInOpen(ctypes.byref(hwavein), WAVE_MAPPER, ctypes.byref(wfx), 0, 0, 0)
+        if res != 0 or not hwavein.value:
+            return None
+
+        chunk_bytes = sample_rate * 2 // 2  # 0.5s per buffer
+        num_buffers = 8
+        buffers = [ctypes.create_string_buffer(chunk_bytes) for _ in range(num_buffers)]
+        headers = [WAVEHDR() for _ in range(num_buffers)]
+        hdr_size = ctypes.sizeof(WAVEHDR)
+
+        for i in range(num_buffers):
+            headers[i].lpData = ctypes.cast(buffers[i], ctypes.c_char_p)
+            headers[i].dwBufferLength = chunk_bytes
+            headers[i].dwBytesRecorded = 0
+            headers[i].dwFlags = 0
+            winmm.waveInPrepareHeader(hwavein, ctypes.byref(headers[i]), hdr_size)
+            winmm.waveInAddBuffer(hwavein, ctypes.byref(headers[i]), hdr_size)
+
+        recorded_chunks: list[bytes] = []
+        stop_flag = threading.Event()
+
+        def _pump():
+            idx = 0
+            while not stop_flag.is_set():
+                hdr = headers[idx]
+                if hdr.dwFlags & WHDR_DONE:
+                    if hdr.dwBytesRecorded > 0:
+                        recorded_chunks.append(buffers[idx].raw[: hdr.dwBytesRecorded])
+                    winmm.waveInUnprepareHeader(hwavein, ctypes.byref(hdr), hdr_size)
+                    hdr.dwBytesRecorded = 0
+                    hdr.dwFlags = 0
+                    winmm.waveInPrepareHeader(hwavein, ctypes.byref(hdr), hdr_size)
+                    winmm.waveInAddBuffer(hwavein, ctypes.byref(hdr), hdr_size)
+                    idx = (idx + 1) % num_buffers
+                else:
+                    time.sleep(0.03)
+
+        winmm.waveInStart(hwavein)
+        worker = threading.Thread(target=_pump, daemon=True)
+        worker.start()
+
+        try:
+            if duration:
+                print(f"🎙️  Recording from microphone for {duration:.1f}s ... Speak now!")
+                time.sleep(duration)
+            else:
+                print("🎙️  Recording from microphone... Speak now, and press Enter when finished!")
+                input()
+        finally:
+            stop_flag.set()
+            winmm.waveInStop(hwavein)
+            winmm.waveInReset(hwavein)
+            worker.join(timeout=1.0)
+            for i in range(num_buffers):
+                if headers[i].dwBytesRecorded > 0:
+                    recorded_chunks.append(buffers[i].raw[: headers[i].dwBytesRecorded])
+                winmm.waveInUnprepareHeader(hwavein, ctypes.byref(headers[i]), hdr_size)
+            winmm.waveInClose(hwavein)
+
+        pcm_data = b"".join(recorded_chunks)
+        if pcm_data:
+            save_wav(pcm_data, output_wav, rate=sample_rate)
+            if os.path.isfile(output_wav) and os.path.getsize(output_wav) > 44:
+                return output_wav
+    except Exception:
+        pass
+    return None
+
+
 def record_microphone_audio(duration: float | None = None, output_wav: str | None = None) -> str:
     """Record live normal voice from the microphone into a 16 kHz 16-bit mono WAV file.
     If `duration` is None, records until the user presses Enter."""
@@ -290,27 +404,38 @@ def record_microphone_audio(duration: float | None = None, output_wav: str | Non
         tmp_fd, output_wav = tempfile.mkstemp(prefix="sintam_mic_", suffix=".wav")
         os.close(tmp_fd)
 
-    # 1. Try sounddevice if installed
-    try:
-        import sounddevice as sd
-        import numpy as np
-        if duration:
-            print(f"🎙️  Recording from microphone for {duration:.1f}s ... Speak now!")
-            audio = sd.rec(int(duration * IN_RATE), samplerate=IN_RATE, channels=1, dtype="int16")
-            sd.wait()
-            pcm_bytes = audio.tobytes()
-        else:
-            chunks = []
-            def _cb(indata, frames, time_info, status):
-                chunks.append(bytes(indata))
-            print("🎙️  Recording from microphone... Speak now, and press Enter when finished!")
-            with sd.RawInputStream(samplerate=IN_RATE, channels=1, dtype="int16", callback=_cb):
-                input()
-            pcm_bytes = b"".join(chunks)
-        save_wav(pcm_bytes, output_wav, rate=IN_RATE)
-        return output_wav
-    except ImportError:
-        pass
+    # 1. Try sounddevice (auto-installing via `python -m pip` on Windows/Linux if missing)
+    for attempt in range(2):
+        try:
+            import sounddevice as sd
+            import numpy as np
+            if duration:
+                print(f"🎙️  Recording from microphone for {duration:.1f}s ... Speak now!")
+                audio = sd.rec(int(duration * IN_RATE), samplerate=IN_RATE, channels=1, dtype="int16")
+                sd.wait()
+                pcm_bytes = audio.tobytes()
+            else:
+                chunks = []
+                def _cb(indata, frames, time_info, status):
+                    chunks.append(bytes(indata))
+                print("🎙️  Recording from microphone... Speak now, and press Enter when finished!")
+                with sd.RawInputStream(samplerate=IN_RATE, channels=1, dtype="int16", callback=_cb):
+                    input()
+                pcm_bytes = b"".join(chunks)
+            save_wav(pcm_bytes, output_wav, rate=IN_RATE)
+            return output_wav
+        except ImportError:
+            if attempt == 0 and sys.platform != "darwin":
+                print("Installing microphone support (sounddevice, numpy) ...")
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-q", "sounddevice", "numpy"],
+                    check=False,
+                )
+                continue
+            break
+        except Exception as sd_err:
+            print(f"  [warning] sounddevice recording error ({sd_err}), trying OS native recorder...")
+            break
 
     # 2. macOS built-in AVAudioRecorder via ctypes (zero third-party packages required)
     if sys.platform == "darwin":
@@ -370,29 +495,11 @@ def record_microphone_audio(duration: float | None = None, output_wav: str | Non
         except Exception as mac_err:
             print(f"  [warning] macOS microphone recording error: {mac_err}")
 
-    # 3. Windows built-in winmm.dll MCI recorder via ctypes (zero third-party packages required)
+    # 3. Windows built-in winmm.dll waveInOpen memory recorder (zero third-party packages required)
     if sys.platform == "win32":
-        try:
-            winmm = ctypes.windll.winmm
-            mci = winmm.mciSendStringW
-            abs_out = os.path.abspath(output_wav)
-            mci("close sintam_rec", None, 0, 0)
-            mci("open new type waveaudio alias sintam_rec", None, 0, 0)
-            mci(f"set sintam_rec time format ms bitspersample 16 channels 1 samplespersec {IN_RATE}", None, 0, 0)
-            mci("record sintam_rec", None, 0, 0)
-            if duration:
-                print(f"🎙️  Recording from microphone for {duration:.1f}s ... Speak now!")
-                time.sleep(duration)
-            else:
-                print("🎙️  Recording from microphone... Speak now, and press Enter when finished!")
-                input()
-            mci("stop sintam_rec", None, 0, 0)
-            mci(f'save sintam_rec "{abs_out}"', None, 0, 0)
-            mci("close sintam_rec", None, 0, 0)
-            if os.path.isfile(abs_out) and os.path.getsize(abs_out) > 44:
-                return abs_out
-        except Exception as win_err:
-            print(f"  [warning] Windows microphone recording error: {win_err}")
+        win_res = _record_windows_wavein(duration, output_wav, sample_rate=IN_RATE)
+        if win_res:
+            return win_res
 
     # 4. Linux `arecord` or cross-platform `sox` / `ffmpeg`
     arecord_bin = shutil.which("arecord")
@@ -416,7 +523,7 @@ def record_microphone_audio(duration: float | None = None, output_wav: str | Non
             return output_wav
 
     raise RuntimeError(
-        "Microphone recording requires microphone permission (macOS) or `pip install sounddevice numpy`."
+        f"Microphone recording failed. Check OS microphone permissions or run:\n  {sys.executable} -m pip install sounddevice numpy"
     )
 
 

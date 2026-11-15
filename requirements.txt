@@ -15,6 +15,10 @@ pydantic-settings>=2.2.0
 # Production Logging
 structlog>=24.1.0
 
+# Live Microphone Recording (cross-platform: Windows, macOS, Linux)
+sounddevice>=0.4.6
+numpy>=1.24.0
+
 # Testing Frameworks
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

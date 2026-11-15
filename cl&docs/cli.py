@@ -55,7 +55,7 @@ def _ensure_project_files() -> str:
 
 HERE = _ensure_project_files()
 BACKEND_LOG = os.path.join(HERE, "backend.log")
-REQUIRED_MODULES = ["websockets", "fastapi", "uvicorn", "google.genai", "pydantic_settings"]
+REQUIRED_MODULES = ["websockets", "fastapi", "uvicorn", "google.genai", "pydantic_settings", "sounddevice"]
 
 # Sinhala / Tamil text must not crash the Windows console (cp1252)
 for stream in (sys.stdout, sys.stderr):
@@ -81,7 +81,7 @@ def _ensure_dependencies() -> None:
         req_file = os.path.join(HERE, "..", "requirements.txt")
     print(f"Installing missing Python packages ({', '.join(missing)}) ...")
     cmd = [sys.executable, "-m", "pip", "install", "-r", req_file] if os.path.isfile(req_file) else [
-        sys.executable, "-m", "pip", "install", "websockets", "fastapi", "uvicorn[standard]", "google-genai", "pydantic-settings", "structlog"
+        sys.executable, "-m", "pip", "install", "websockets", "fastapi", "uvicorn[standard]", "google-genai", "pydantic-settings", "structlog", "sounddevice", "numpy"
     ]
     res = subprocess.run(cmd)
     if res.returncode != 0:
