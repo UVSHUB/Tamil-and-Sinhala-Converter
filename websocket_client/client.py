@@ -216,22 +216,38 @@ def record_microphone_audio(duration: Optional[float] = None, output_wav: Option
         os.close(fd)
     output_wav = os.path.abspath(output_wav)
 
-    # 1. Try sounddevice if installed
-    try:
-        import sounddevice as sd  # type: ignore
-        secs = duration or 5.0
-        print(f"🎤 Recording live voice from microphone for {secs:.1f}s ... Speak now!")
-        recording = sd.rec(int(secs * IN_SAMPLE_RATE), samplerate=IN_SAMPLE_RATE, channels=1, dtype="int16")
-        sd.wait()
-        with wave.open(output_wav, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(IN_SAMPLE_RATE)
-            wf.writeframes(recording.tobytes())
-        print(f"✓ Recorded voice saved to {output_wav}")
-        return output_wav
-    except ImportError:
-        pass
+    # 1. Try sounddevice (auto-installing via python -m pip on Windows/Linux if missing)
+    for attempt in range(2):
+        try:
+            import sounddevice as sd  # type: ignore
+            if duration and duration > 0:
+                print(f"🎤 Recording live voice from microphone for {duration:.1f}s ... Speak now!")
+                recording = sd.rec(int(duration * IN_SAMPLE_RATE), samplerate=IN_SAMPLE_RATE, channels=1, dtype="int16")
+                sd.wait()
+                pcm_bytes = recording.tobytes()
+            else:
+                chunks = []
+                def _cb(indata, frames, time_info, status):
+                    chunks.append(bytes(indata))
+                print("🎤 Recording live voice from microphone... Speak now and press [Enter] when finished > ")
+                with sd.RawInputStream(samplerate=IN_SAMPLE_RATE, channels=1, dtype="int16", callback=_cb):
+                    input()
+                pcm_bytes = b"".join(chunks)
+            with wave.open(output_wav, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(IN_SAMPLE_RATE)
+                wf.writeframes(pcm_bytes)
+            print(f"✓ Recorded voice saved to {output_wav}")
+            return output_wav
+        except ImportError:
+            if attempt == 0 and sys.platform != "darwin":
+                print("Installing microphone support (sounddevice, numpy) ...")
+                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "sounddevice", "numpy"], check=False)
+                continue
+            break
+        except Exception:
+            break
 
     # 2. On macOS, use native AVFoundation (AVAudioRecorder) via ctypes - zero extra dependencies
     if sys.platform == "darwin":
@@ -304,26 +320,13 @@ def record_microphone_audio(duration: Optional[float] = None, output_wav: Option
         print(f"✓ Recorded voice saved to {output_wav}")
         return output_wav
 
-    # 3. On Windows, use built-in winmm.dll MCI recorder via ctypes
+    # 3. On Windows, use built-in winmm.dll waveInOpen recorder via translate_client
     if sys.platform == "win32":
-        import ctypes
-        winmm = ctypes.windll.winmm
-        mci = winmm.mciSendStringW
-        mci("close sintam_rec", None, 0, 0)
-        mci("open new type waveaudio alias sintam_rec", None, 0, 0)
-        mci(f"set sintam_rec time format ms bitspersample 16 channels 1 samplespersec {IN_SAMPLE_RATE}", None, 0, 0)
-        mci("record sintam_rec", None, 0, 0)
-        if duration and duration > 0:
-            print(f"🎤 Recording live voice from microphone for {duration:.1f}s ... Speak now!")
-            time.sleep(duration)
-        else:
-            input("🎤 Recording live voice from microphone... Speak now and press [Enter] when finished > ")
-        mci("stop sintam_rec", None, 0, 0)
-        mci(f'save sintam_rec "{output_wav}"', None, 0, 0)
-        mci("close sintam_rec", None, 0, 0)
-        if os.path.isfile(output_wav) and os.path.getsize(output_wav) > 44:
+        from translate_client import _record_windows_wavein
+        win_res = _record_windows_wavein(duration, output_wav, sample_rate=IN_SAMPLE_RATE)
+        if win_res:
             print(f"✓ Recorded voice saved to {output_wav}")
-            return output_wav
+            return win_res
 
     # 4. Try ffmpeg / arecord on Linux
     if shutil.which("arecord"):
