@@ -120,11 +120,11 @@ def _read_env_file() -> dict:
     return merged
 
 
-def _save_api_key(entered_key: str) -> None:
-    """Save GEMINI_API_KEY to HERE/.env (and cwd/.env if present)."""
-    entered_key = entered_key.strip().strip('"').strip("'")
+def _save_api_key(entered_key: str) -> str:
+    """Save GEMINI_API_KEY to HERE/.env (and cwd/.env if present), stripping accidental quotes or <> brackets."""
+    entered_key = entered_key.strip().strip('"').strip("'").strip("<>").strip()
     if not entered_key:
-        return
+        return ""
     os.environ["GEMINI_API_KEY"] = entered_key
     targets = [os.path.join(HERE, ".env")]
     cwd_env = os.path.join(os.getcwd(), ".env")
@@ -138,6 +138,7 @@ def _save_api_key(entered_key: str) -> None:
         existing_lines.insert(0, f"GEMINI_API_KEY={entered_key}")
         with open(env_path, "w", encoding="utf-8") as ef:
             ef.write("\n".join(existing_lines) + "\n")
+    return entered_key
 
 
 def _health(host: str, port: int) -> dict | None:
@@ -311,7 +312,7 @@ def _run_interactive_loop(args) -> int:
     print("  • Enter an audio file path (.mp3, .wav, .m4a, .ogg, .flac, .aac, .pcm, etc.)")
     print("  • Type 'mic' (or 'voice' / 'record 5') to speak live with your normal voice")
     print("  • Or type Sinhala/Tamil text directly")
-    print("  • Type 'key <YOUR_GEMINI_API_KEY>' to update your Gemini API key")
+    print("  • Type 'key YOUR_GEMINI_API_KEY' to update your Gemini API key")
     print("  • Type 'exit' or 'quit' to stop.\n")
     turn_idx = 0
     while True:
@@ -331,9 +332,9 @@ def _run_interactive_loop(args) -> int:
                     new_key = input("Paste new GEMINI_API_KEY = ").strip()
                 except (EOFError, KeyboardInterrupt):
                     new_key = ""
-            if new_key:
-                _save_api_key(new_key)
-                args.api_key = new_key
+            cleaned_key = _save_api_key(new_key)
+            if cleaned_key:
+                args.api_key = cleaned_key
                 print("Updated GEMINI_API_KEY for this session and saved to .env!\n")
             continue
 

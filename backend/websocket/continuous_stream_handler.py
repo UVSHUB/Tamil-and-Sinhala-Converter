@@ -135,17 +135,17 @@ def classify_gemini_error(err: Exception | str | None) -> str | None:
     if "prepayment credits are depleted" in lower or "402" in text or "payment required" in lower:
         return (
             "ERROR: Gemini API key prepayment credits are depleted (HTTP 402). "
-            "Please update GEMINI_API_KEY in .env (or type 'key <NEW_GEMINI_API_KEY>' in interactive mode)."
+            "Please update GEMINI_API_KEY in .env (or type 'key NEW_GEMINI_API_KEY' in interactive mode)."
         )
     if "api_key_invalid" in lower or "api key not valid" in lower or "invalid api key" in lower:
         return (
             "ERROR: Gemini API key is invalid. "
-            "Please update GEMINI_API_KEY in .env (or type 'key <NEW_GEMINI_API_KEY>' in interactive mode)."
+            "Please update GEMINI_API_KEY in .env (or type 'key NEW_GEMINI_API_KEY' in interactive mode)."
         )
     if "resource_exhausted" in text or "429" in text or "quota" in lower:
         return (
             "ERROR: Gemini API quota exceeded (HTTP 429) for this API key. "
-            "Wait a while or update GEMINI_API_KEY in .env (or type 'key <NEW_GEMINI_API_KEY>')."
+            "Wait a while or update GEMINI_API_KEY in .env (or type 'key NEW_GEMINI_API_KEY')."
         )
     return None
 
