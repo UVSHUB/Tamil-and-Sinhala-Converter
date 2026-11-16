@@ -193,6 +193,82 @@ async def translate_audio_endpoint(
         "audio_wav_base64": wav_out_b64,
         "sample_rate": 24000,
     }
+
+
+@app.post("/api/v1/translate-text", tags=["Translation"])
+async def translate_text_endpoint(
+    request: Request,
+    target: str = Query("Tamil"),
+    source: str = Query("Auto-Detect"),
+    voice: str = Query("Aoede"),
+    api_key: str | None = Query(None),
+):
+    """
+    Translates text (Sinhala / Tamil / English) via REST and returns both the
+    translated text and optional synthesized speech WAV as base64.
+    JSON body: {"text": "...", "target": "Tamil", "voice": "Aoede", "tts": true}
+    """
+    final_api_key = api_key if is_gemini_api_key(api_key) else settings.GEMINI_API_KEY
+    if not final_api_key:
+        raise HTTPException(status_code=401, detail="GEMINI_API_KEY is not configured.")
+
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided.")
+    target = body.get("target", target)
+    source = body.get("source", source)
+    voice = body.get("voice", voice)
+    want_tts = bool(body.get("tts", True))
+
+    ai_client = create_genai_client(final_api_key)
+    prompt = (
+        f"Translate the following text into {target}. It may be Sinhala, Tamil or English. "
+        f"Output ONLY the {target} translation, nothing else.\n\n{text}"
+    )
+    translation = ""
+    for m in (
+        settings.TRANSLATE_MODEL,
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",
+    ):
+        try:
+            res = ai_client.models.generate_content(model=m, contents=prompt)
+            if res.text and res.text.strip():
+                translation = res.text.strip()
+                break
+        except Exception:
+            continue
+
+    if not translation:
+        raise HTTPException(status_code=502, detail="Failed to translate text.")
+
+    wav_out_b64 = ""
+    if want_tts:
+        tts_pcm = await synthesize_tts_audio(ai_client, translation, voice_name=voice)
+        if tts_pcm:
+            if tts_pcm[:4] == b"RIFF":
+                wav_out_bytes = tts_pcm
+            else:
+                buf = io.BytesIO()
+                with wave.open(buf, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(24000)
+                    wf.writeframes(tts_pcm)
+                wav_out_bytes = buf.getvalue()
+            wav_out_b64 = base64.b64encode(wav_out_bytes).decode("ascii")
+
+    return {
+        "source_text": text,
+        "source_language": source,
+        "target_language": target,
+        "translation": translation,
+        "audio_wav_base64": wav_out_b64,
+        "sample_rate": 24000,
+    }
 # ----------------------------------------
 
 # Serve React Frontend (if built and present)

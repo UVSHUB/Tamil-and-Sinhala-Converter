@@ -285,6 +285,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="Backend host")
     p.add_argument("--port", type=int, default=8000, help="Backend port")
     p.add_argument("--run-backend", action="store_true", help="Start the backend first and stop it afterwards")
+    p.add_argument("--serve", action="store_true",
+                   help="Start the backend API/WebSocket server and keep it running for any external app or project")
+    p.add_argument("--json", action="store_true",
+                   help="Output translation result as machine-readable JSON (great for calling from Node.js/Python/PHP/Java)")
     p.add_argument("--audio", "--wav", "--mp3", dest="audio", default=None,
                    help="Audio file to translate (.mp3, .wav, .m4a, .aac, .ogg, .opus, .flac, .webm, .pcm, etc.)")
     p.add_argument("--mic", "--voice-input", dest="mic", action="store_true",
@@ -400,13 +404,13 @@ def main(argv=None) -> int:
         else:
             args.text = args.input
 
-    # Default to bundled sample_sinhala.wav / sample_sinhala.pcm when neither audio nor text nor mic nor interactive is given
-    if args.audio is None and args.text is None and not args.mic and not args.interactive:
+    # Default to bundled sample_sinhala.wav / sample_sinhala.pcm when neither audio nor text nor mic nor interactive nor serve is given
+    if args.audio is None and args.text is None and not args.mic and not args.interactive and not args.serve:
         default_wav = os.path.join(HERE, "sample_sinhala.wav")
         default_pcm = os.path.join(HERE, "sample_sinhala.pcm")
         args.audio = default_wav if os.path.isfile(default_wav) else default_pcm
 
-    if not args.interactive and not args.mic:
+    if not args.interactive and not args.mic and not args.serve:
         if args.text is None:
             resolved_audio = translate_client.resolve_audio_path(args.audio)
             if not os.path.isfile(resolved_audio):
@@ -419,6 +423,20 @@ def main(argv=None) -> int:
 
     backend = None
     try:
+        if args.serve:
+            args.port = _resolve_port(args.host, args.port)
+            backend = start_backend(args.host, args.port)
+            display_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
+            print(f"\nSinTam Backend API is LIVE for any project:")
+            print(f"  • Health Check : http://{display_host}:{args.port}/api/v1/health")
+            print(f"  • Text REST    : POST http://{display_host}:{args.port}/api/v1/translate-text")
+            print(f"  • Audio REST   : POST http://{display_host}:{args.port}/api/v1/translate-audio")
+            print(f"  • Live WS      : ws://{display_host}:{args.port}/ws/translate-auto?target=Tamil")
+            print("Press Ctrl+C to stop the server.\n")
+            while backend is None or backend.poll() is None:
+                time.sleep(1)
+            return 0
+
         if args.run_backend:
             args.port = _resolve_port(args.host, args.port)
             backend = start_backend(args.host, args.port)
@@ -438,7 +456,8 @@ def main(argv=None) -> int:
             translate_client.record_microphone_audio(duration=args.record_seconds, output_wav=rec_path)
             args.audio = rec_path
 
-        print("-" * 60)
+        if not args.json:
+            print("-" * 60)
         if args.text is not None:
             session = asyncio.run(translate_client.translate_text(
                 args.text, host=args.host, port=args.port, source=args.source, target=args.target,
@@ -451,6 +470,16 @@ def main(argv=None) -> int:
                 target=args.target, voice=args.voice, api_key=args.api_key,
                 timeout=args.timeout, play=args.play,
             ))
+        if args.json:
+            payload = {
+                "detected": session.detected,
+                "transcription": session.full_transcription,
+                "translation": session.full_translation,
+                "output_wav": session.output_wav_path,
+                "error": session.closed_reason if not session.translations else None,
+            }
+            print("JSON_RESULT:" + json.dumps(payload, ensure_ascii=False))
+            return 0 if session.translations else 1
         print("-" * 60)
 
         if session.closed_reason and not session.translations:
